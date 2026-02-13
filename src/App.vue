@@ -1,160 +1,198 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { ref, onMounted } from "vue";
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { configManager } from "./utils/ConfigManager";
+import TitleBar from "./components/TitleBar.vue";
+import FilterPage from "./views/FilterPage.vue";
+import MarketPage from "./views/MarketPage.vue";
+import SettingsOverlay from "./views/SettingsOverlay.vue";
 
-const greetMsg = ref("");
-const name = ref("");
+// State
+const currentView = ref("filter");
+const showSettings = ref(false);
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
-}
+const toggleSettings = () => {
+  showSettings.value = !showSettings.value;
+};
+
+// Component Mapping
+const viewComponents: Record<string, any> = {
+  filter: FilterPage,
+  market: MarketPage
+};
+
+// Window Management
+onMounted(async () => {
+  // 1. Initialize Config
+  await configManager.init();
+  const settings = configManager.getSettings();
+  const appWindow = getCurrentWindow();
+
+  // 2. Restore Size (and maximize state if we had it)
+  if (settings.width && settings.height) {
+     // Apply size
+     await appWindow.setSize(new LogicalSize(settings.width, settings.height));
+  }
+  
+  if (settings.maximized) {
+      await appWindow.maximize();
+  }
+
+  // 3. Setup Close Listener to save settings
+  // Note: We don't prevent close, just save on the fly.
+  // If preventing is needed to ensure write completion, we'd need deeper integration.
+  // But for now, firing the async write is usually enough before the process kills.
+  appWindow.listen('tauri://close-requested', async () => {
+      try {
+          const factor = await appWindow.scaleFactor();
+          const size = await appWindow.innerSize();
+          const logical = size.toLogical(factor);
+          const isMaximized = await appWindow.isMaximized();
+          
+          await configManager.saveSettings({
+              width: logical.width,
+              height: logical.height,
+              maximized: isMaximized
+          });
+      } catch (e) {
+          console.error("Failed to save config on close", e);
+      }
+      // We don't block close here. 
+      // If we needed to block: event.preventDefault(), save, then window.destroy().
+  });
+});
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+  <!-- Element Plus Dark Mode Provider Wrapper -->
+  <el-config-provider namespace="ep">
+    <div class="app-container dark">
+      <!-- Layer 1: Background Image -->
+      <div class="bg-layer"></div>
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
+      <!-- Layer 2: Vignette Shadow -->
+      <div class="shadow-layer"></div>
+
+      <!-- Layer 3: App Content -->
+      <div class="app-layout">
+        <TitleBar 
+          v-model:currentView="currentView"
+          :isSettingsOpen="showSettings"
+          @toggleSettings="toggleSettings" 
+        />
+
+        <div class="content-area">
+          <component :is="viewComponents[currentView]" />
+          
+          <Transition name="slide">
+            <SettingsOverlay v-if="showSettings" />
+          </Transition>
+        </div>
+      </div>
     </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
-
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+  </el-config-provider>
 </template>
 
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
 <style>
+/* Global Resets */
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+  color: #cfd3dc;
+  background-color: transparent;
 }
 
-.container {
+body {
   margin: 0;
-  padding-top: 10vh;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  background: #000;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+}
+
+/* Scrollbar styling for WebKit */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2); 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3); 
+}
+</style>
+
+<style scoped>
+.app-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Force dark scheme context */
+  color-scheme: dark;
+}
+
+/* Layer 1 */
+.bg-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/Background.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
+/* Layer 2 */
+.shadow-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* Radial gradient: Transparent center, Dark edges */
+  background: radial-gradient(circle at center, rgba(10,10,10,0.2) 20%, rgba(0,0,0,0.85) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Layer 3 */
+.app-layout {
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  height: 100%;
+  width: 100%;
+  z-index: 2;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
+.content-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
+/* Transition for Settings */
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform 0.3s ease;
 }
 
-.row {
-  display: flex;
-  justify-content: center;
+.slide-enter-from,
+.slide-leave-to {
+  transform: translateX(100%);
 }
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
 </style>

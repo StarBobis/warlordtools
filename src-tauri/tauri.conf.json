@@ -13,8 +13,12 @@
     "windows": [
       {
         "title": "warlordtools",
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 720,
+        "minWidth": 1056,
+        "minHeight": 594,
+        "decorations": false,
+        "center": true
       }
     ],
     "security": {

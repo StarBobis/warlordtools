@@ -1,192 +1,241 @@
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-defineProps<{
+const { currentView } = defineProps<{
   currentView: string;
-  isSettingsOpen: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:currentView', view: string): void;
-  (e: 'toggleSettings'): void;
 }>();
 
 const appWindow = getCurrentWindow();
 
 const minimize = () => appWindow.minimize();
 const maximize = async () => {
-    if (await appWindow.isMaximized()) {
-        appWindow.unmaximize();
-    } else {
-        appWindow.maximize();
-    }
+  if (await appWindow.isMaximized()) {
+    appWindow.unmaximize();
+  } else {
+    appWindow.maximize();
+  }
 };
-const close = () => appWindow.close();
+const closeWindow = async () => {
+  console.log('Close button clicked');
+  await appWindow.close();
+};
 </script>
 
 <template>
-  <div class="title-bar" data-tauri-drag-region>
-    <!-- Left Navigation (Tabs) -->
-    <div class="nav-tabs">
-      <div 
-        class="tab-item" 
-        :class="{ active: currentView === 'filter' }"
-        @click="emit('update:currentView', 'filter')"
-      >
-        <span class="tab-text">过滤器</span>
-        <div class="active-indicator"></div>
+  <div class="title-bar-container">
+    <div class="nav-section">
+      <div class="nav-tab" :class="{ active: currentView === 'filter' }" @click="emit('update:currentView', 'filter')">
+        <span>过滤器</span>
+        <div class="tab-indicator"></div>
       </div>
-      <div 
-        class="tab-item" 
-        :class="{ active: currentView === 'market' }"
-        @click="emit('update:currentView', 'market')"
-      >
-        <span class="tab-text">市集</span>
-        <div class="active-indicator"></div>
+      <div class="nav-tab" :class="{ active: currentView === 'market' }" @click="emit('update:currentView', 'market')">
+        <span>市集</span>
+        <div class="tab-indicator"></div>
       </div>
     </div>
 
-    <!-- Right Controls -->
-    <div class="window-controls">
-      <!-- Settings Button -->
-      <div 
-        class="caption-btn settings-btn" 
-        :class="{ active: isSettingsOpen }"
-        @click="emit('toggleSettings')"
-        title="Settings"
-      >
-        <el-icon :size="16"><Setting /></el-icon>
+    <div class="controls-section">
+      <div class="control-button settings-button" :class="{ active: currentView === 'settings' }" @click="emit('update:currentView', 'settings')" title="Settings">
+        <span class="gear-icon" aria-hidden="true"></span>
       </div>
-
-      <!-- Native-like Window Controls -->
-      <div class="caption-btn" @click="minimize" title="Minimize">
-         <el-icon :size="16"><Minus /></el-icon>
-      </div>
-
-      <div class="caption-btn" @click="maximize" title="Maximize">
-         <el-icon :size="16"><FullScreen /></el-icon>
-      </div>
-
-      <div class="caption-btn close-btn" @click="close" title="Close">
-         <el-icon :size="18"><Close /></el-icon>
+      <div class="window-buttons-group">
+        <div class="control-button win-btn" @click.stop.prevent="minimize" title="Minimize">
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M1.2 5h7.6" />
+          </svg>
+        </div>
+        <div class="control-button win-btn" @click.stop.prevent="maximize" title="Maximize">
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1.5" y="1.5" width="7" height="7" rx="1" />
+          </svg>
+        </div>
+        <div class="control-button win-btn close-btn" @click.stop.prevent="closeWindow" title="Close">
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 2l6 6M8 2l-6 6" />
+          </svg>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.title-bar {
-  height: 40px;
-  /* Slightly denser glass for better foreground contrast */
-  background: rgba(18, 18, 24, 0.78);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-
+.title-bar-container {
+  height: 34px;
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px);
   user-select: none;
-  font-family: "Segoe UI", sans-serif;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  -webkit-app-region: drag;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
 
-/* --- Tabs --- */
-.nav-tabs {
+.nav-section {
   display: flex;
   height: 100%;
-  padding-left: 10px;
+  padding-left: 8px;
   -webkit-app-region: no-drag;
 }
 
-.tab-item {
-  position: relative;
+.nav-tab {
+  height: 100%;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 16px;
+  font-size: 14px;
+  color: #cccccc;
+  position: relative;
   cursor: pointer;
-  
-  /* Text Color Logic */
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-  height: 100%;
+  transition: color 0.2s, background-color 0.2s;
 }
 
-.tab-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.tab-item.active {
-  color: #fff;
+.nav-tab:hover {
   background-color: rgba(255, 255, 255, 0.1);
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3); /* Subtle glow for active text */
+  color: #ffffff;
 }
 
-.active-indicator {
+.nav-tab.active {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.tab-indicator {
   position: absolute;
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 2px;
-  background-color: var(--el-color-primary);
-  box-shadow: 0 -2px 6px var(--el-color-primary); /* Glow effect for the line */
+  height: 3px;
+  background-color: #409eff;
   transform: scaleX(0);
-  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: transform 0.2s;
 }
 
-.tab-item.active .active-indicator {
+.nav-tab.active .tab-indicator {
   transform: scaleX(1);
 }
 
-/* --- Window Controls --- */
-.window-controls {
+.controls-section {
   display: flex;
   height: 100%;
+  align-items: center;
   -webkit-app-region: no-drag;
+  --btn-size: 40px;
+  --settings-btn-size: 34px;
+  --icon-color: #f5f5f7;
+  --icon-opacity: 0.82;
+  --hover-bg: rgba(255, 255, 255, 0.08);
+  --pressed-bg: rgba(255, 255, 255, 0.16);
+  --close-hover-bg: #f1707a;
+  --close-pressed-bg: #d13438;
+  --anim: 120ms ease;
 }
 
-.caption-btn {
-  width: 46px;
+.control-button {
   height: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
-  cursor: default;
-  
-  /* Icon Color Configuration */
-  color: rgba(255, 255, 255, 0.9); /* Brighter base for dark glass */
-  
-  transition: background-color 0.15s, color 0.15s;
+  cursor: pointer;
+  transition: background-color var(--anim), color var(--anim), opacity var(--anim);
+  -webkit-app-region: no-drag;
 }
 
-/* Force el-icon to use inherit color */
-.caption-btn :deep(.el-icon) {
-    color: inherit;
+.settings-button {
+  width: var(--settings-btn-size);
+  height: 100%;
+  margin-right: 6px;
+  border-radius: 4px;
+  transition: background-color var(--anim), opacity var(--anim);
 }
 
-.caption-btn:hover {
-  background-color: rgba(255, 255, 255, 0.14);
-  color: #ffffff; /* Bright white on hover */
+.gear-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--icon-color);
+  opacity: var(--icon-opacity);
+  transition: opacity var(--anim), color var(--anim);
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
+  font-size: 16px;
+  line-height: 1;
 }
 
-/* Close Button Special Handling */
-.caption-btn.close-btn:hover {
-  background-color: #c42b1c; /* Windows 11 Close Red */
-  box-shadow: inset 0 0 10px rgba(0,0,0,0.25); /* Slight depth */
+.gear-icon::before {
+  content: "\E713"; /* Fluent/MDL2 settings gear */
+}
+
+.settings-button:hover .gear-icon,
+.settings-button.active .gear-icon {
+  opacity: 1;
   color: #ffffff;
 }
 
-/* Settings Button */
-.settings-btn {
-  border-left: 1px solid rgba(255, 255, 255, 0.08); /* Slightly stronger separator */
+.settings-button:hover {
+  background-color: var(--hover-bg);
 }
 
-.settings-btn.active {
-  background-color: rgba(255, 255, 255, 0.18);
-  color: var(--el-color-primary-light-3); /* Active state matches theme */
+.settings-button.active {
+  background-color: rgba(64, 158, 255, 0.4);
+}
+
+.window-buttons-group {
+  height: 100%;
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: var(--btn-size);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--anim), color var(--anim), opacity var(--anim);
+  -webkit-app-region: no-drag;
+}
+
+.win-btn svg {
+  width: 10px;
+  height: 10px;
+  color: var(--icon-color);
+  stroke: var(--icon-color);
+  fill: none;
+  opacity: var(--icon-opacity);
+}
+
+.win-btn:hover {
+  background-color: var(--hover-bg);
+}
+
+.win-btn:hover svg {
+  opacity: 1;
+}
+
+.close-btn:hover {
+  background-color: var(--close-hover-bg) !important;
+}
+
+.close-btn:hover svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.win-btn:active {
+  background-color: var(--pressed-bg);
+}
+
+.close-btn:active {
+  background-color: var(--close-pressed-bg) !important;
 }
 </style>

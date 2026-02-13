@@ -1,5 +1,5 @@
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
-import { join, appLocalDataDir } from '@tauri-apps/api/path';
+// import { join, appLocalDataDir } from '@tauri-apps/api/path';
 
 export interface AppSettings {
     width: number;
@@ -38,7 +38,7 @@ class ConfigManager {
             }
 
             // Check if file exists
-            const configPath = await join(CONFIG_DIR, CONFIG_FILE); 
+            // const configPath = await join(CONFIG_DIR, CONFIG_FILE); 
             // Note: 'exists' and 'readTextFile' take the relative path if baseDir is provided.
             // But we can just pass the path relative to baseDir.
 

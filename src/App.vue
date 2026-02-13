@@ -5,20 +5,16 @@ import { configManager } from "./utils/ConfigManager";
 import TitleBar from "./components/TitleBar.vue";
 import FilterPage from "./views/FilterPage.vue";
 import MarketPage from "./views/MarketPage.vue";
-import SettingsOverlay from "./views/SettingsOverlay.vue";
+import SettingsPage from "./views/SettingsPage.vue";
 
 // State
 const currentView = ref("filter");
-const showSettings = ref(false);
-
-const toggleSettings = () => {
-  showSettings.value = !showSettings.value;
-};
 
 // Component Mapping
 const viewComponents: Record<string, any> = {
   filter: FilterPage,
-  market: MarketPage
+  market: MarketPage,
+  settings: SettingsPage,
 };
 
 // Window Management
@@ -77,16 +73,10 @@ onMounted(async () => {
       <div class="app-layout">
         <TitleBar 
           v-model:currentView="currentView"
-          :isSettingsOpen="showSettings"
-          @toggleSettings="toggleSettings" 
         />
 
         <div class="content-area">
           <component :is="viewComponents[currentView]" />
-          
-          <Transition name="slide">
-            <SettingsOverlay v-if="showSettings" />
-          </Transition>
         </div>
       </div>
     </div>

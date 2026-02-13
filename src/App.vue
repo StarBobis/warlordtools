@@ -35,10 +35,11 @@ onMounted(async () => {
   }
 
   // 3. Setup Close Listener to save settings
-  // Note: We don't prevent close, just save on the fly.
-  // If preventing is needed to ensure write completion, we'd need deeper integration.
-  // But for now, firing the async write is usually enough before the process kills.
-  appWindow.listen('tauri://close-requested', async () => {
+  // Use onCloseRequested to handle the close event properly with Tauri v2
+  appWindow.onCloseRequested(async (event) => {
+      // Prevent the window from closing immediately so we can save settings
+      event.preventDefault();
+      
       try {
           const factor = await appWindow.scaleFactor();
           const size = await appWindow.innerSize();
@@ -52,9 +53,10 @@ onMounted(async () => {
           });
       } catch (e) {
           console.error("Failed to save config on close", e);
+      } finally {
+          // Force close the window strictly after saving
+          appWindow.destroy();
       }
-      // We don't block close here. 
-      // If we needed to block: event.preventDefault(), save, then window.destroy().
   });
 });
 </script>

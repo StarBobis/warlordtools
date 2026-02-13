@@ -21,7 +21,11 @@ const maximize = async () => {
 };
 const closeWindow = async () => {
   console.log('Close button clicked');
-  await appWindow.close();
+  try {
+    await appWindow.close();
+  } catch (error) {
+    console.error('Failed to close window:', error);
+  }
 };
 </script>
 

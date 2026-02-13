@@ -62,27 +62,24 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- Element Plus Dark Mode Provider Wrapper -->
-  <el-config-provider namespace="ep">
-    <div class="app-container dark">
-      <!-- Layer 1: Background Image -->
-      <div class="bg-layer"></div>
+  <div class="app-container dark">
+    <!-- Layer 1: Background Image -->
+    <div class="bg-layer"></div>
 
-      <!-- Layer 2: Vignette Shadow -->
-      <div class="shadow-layer"></div>
+    <!-- Layer 2: Vignette Shadow -->
+    <div class="shadow-layer"></div>
 
-      <!-- Layer 3: App Content -->
-      <div class="app-layout">
-        <TitleBar 
-          v-model:currentView="currentView"
-        />
+    <!-- Layer 3: App Content -->
+    <div class="app-layout">
+      <TitleBar 
+        v-model:currentView="currentView"
+      />
 
-        <div class="content-area">
-          <component :is="viewComponents[currentView]" />
-        </div>
+      <div class="content-area">
+        <component :is="viewComponents[currentView]" />
       </div>
     </div>
-  </el-config-provider>
+  </div>
 </template>
 
 <style>

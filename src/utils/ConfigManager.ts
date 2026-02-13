@@ -7,6 +7,7 @@ export interface AppSettings {
     x?: number;
     y?: number;
     maximized: boolean;
+    filterStoragePath?: string;
 }
 
 const CONFIG_DIR = 'WarlordToolsConfig';
@@ -16,7 +17,8 @@ const CONFIG_FILE = 'Settings.json';
 const DEFAULT_SETTINGS: AppSettings = {
     width: 1280,
     height: 720,
-    maximized: false
+    maximized: false,
+    filterStoragePath: ''
 };
 
 class ConfigManager {

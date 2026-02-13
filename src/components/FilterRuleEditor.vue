@@ -1,0 +1,1120 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue';
+import { open } from '@tauri-apps/plugin-dialog';
+import type { FilterBlock, FilterLine } from '../utils/FilterParser';
+
+const props = defineProps<{
+  block: FilterBlock;
+}>();
+
+const emit = defineEmits<{
+  (e: 'delete'): void;
+}>();
+
+const isExpanded = ref(false);
+
+const localBlock = ref<FilterBlock>(props.block);
+
+// Helper to get/set specific properties efficiently
+const findLineIndex = (key: string) => {
+    return localBlock.value.lines.findIndex(l => l.key.toLowerCase() === key.toLowerCase());
+};
+
+const getLineValue = (key: string): string => {
+  const line = localBlock.value.lines.find(l => l.key.toLowerCase() === key.toLowerCase());
+  if (!line) return '';
+  // Combine multiple lines? Usually standard filters only have one line per key 
+  // EXCEPT for BaseType/Class where they list multiple values.
+  
+  // Remove quotes for display
+  return line.values.map(v => v.replace(/"/g, '')).join(' ');
+};
+
+const setLineValue = (key: string, val: string, needsQuotes = false) => {
+  // If val is empty, remove the line
+  if (!val.trim()) {
+    localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== key.toLowerCase());
+    return;
+  }
+
+  let values: string[] = [];
+
+  if (needsQuotes) {
+      // Logic for quoted strings (Class, BaseType etc)
+      
+      // Heuristic: If the user typed actual quotes, use regex to capture them.
+      // If no quotes found, split by commas or newlines.
+      if (val.includes('"')) {
+          const matches = val.match(/"[^"]*"|[^,\s]+/g);
+          if (matches) {
+              values = matches.map(m => {
+                  const raw = m.replace(/^"|"$/g, '').trim();
+                  return `"${raw}"`;
+              });
+          }
+      } else {
+          // No quotes typed? Treat as comma/newline separated list of strings that NEED quotes
+          values = val.split(/,|，|\n/).map(s => s.trim()).filter(s => s).map(s => `"${s}"`);
+      }
+  } else {
+      // Logic for numeric/simple values (Colors, Sounds)
+      // Remove commands/separators
+      values = val.replace(/,/g, ' ').split(/\s+/).filter(v => v);
+  }
+
+  const existingIndex = findLineIndex(key);
+  
+  const newLine: FilterLine = {
+    key, // Use canonical key casing when saving
+    operator: needsQuotes ? undefined : undefined, 
+    values,
+    raw: '' 
+  };
+
+  if (existingIndex >= 0) {
+    // Preserve operator if existing
+    const oldOp = localBlock.value.lines[existingIndex].operator;
+    if(oldOp && ['=', '==', '>', '<', '>=', '<='].includes(oldOp)) {
+        newLine.operator = oldOp;
+    }
+    localBlock.value.lines[existingIndex] = newLine;
+  } else {
+    localBlock.value.lines.push(newLine);
+  }
+};
+
+// Computed Properties for common fields
+
+// BaseType needs special handling for large text areas and multiple delimiters
+const baseTypes = computed({
+  get: () => {
+      const line = localBlock.value.lines.find(l => l.key.toLowerCase() === 'basetype');
+      if (!line) return '';
+      return line.values.map(v => v.replace(/^"|"$/g, '')).join(', ');
+  },
+  set: (val) => {
+      // Smart split: Handle newlines, commas (both English and Chinese), and manual quotes
+      let values: string[] = [];
+      
+      if (val.includes('"')) {
+          const matches = val.match(/"[^"]*"|[^,\s\n]+/g);
+          if (matches) {
+              values = matches.map(m => `"${m.replace(/^"|"$/g, '')}"`);
+          }
+      } else {
+          const rawValues = val.split(/,|，|\n/).map(s => s.trim()).filter(s => s);
+          values = rawValues.map(s => `"${s}"`);
+      }
+      
+      const idx = findLineIndex('BaseType');
+      if (idx >= 0) {
+          if (values.length === 0) {
+               localBlock.value.lines.splice(idx, 1);
+          } else {
+              localBlock.value.lines[idx].values = values;
+              localBlock.value.lines[idx].key = 'BaseType'; // Ensure casing
+          }
+      } else if (values.length > 0) {
+          localBlock.value.lines.push({
+              key: 'BaseType',
+              operator: undefined, 
+              values,
+              raw: ''
+          });
+      }
+  }
+});
+
+
+const itemClass = computed({
+    get: () => getLineValue('Class'),
+    set: (v) => setLineValue('Class', v, true)
+});
+
+const playAlertSound = computed({
+    get: () => getLineValue('PlayAlertSound'),
+    set: (v) => setLineValue('PlayAlertSound', v)
+});
+
+const customAlertSound = computed({
+    get: () => getLineValue('CustomAlertSound'),
+    set: (val) => {
+        if (!val.trim()) {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key !== 'CustomAlertSound');
+            return;
+        }
+        
+        // Heuristic: Check if last part is a volume number (0-300)
+        const parts = val.trim().match(/(.*)\s+(\d+)$/);
+        
+        let file = val.trim();
+        let vol = '';
+        
+        if (parts) {
+            file = parts[1];
+            vol = parts[2];
+        }
+
+        const values = [`"${file.replace(/"/g, '')}"`];
+        if (vol) values.push(vol);
+
+        const key = 'CustomAlertSound';
+        const idx = localBlock.value.lines.findIndex(l => l.key === key);
+        const newLine: FilterLine = { key, values, raw: '' };
+
+        if (idx >= 0) {
+            localBlock.value.lines[idx] = newLine;
+        } else {
+            localBlock.value.lines.push(newLine);
+        }
+    }
+});
+
+const browseSound = async () => {
+    try {
+        const file = await open({
+            multiple: false,
+            filters: [{
+                name: 'Audio Files',
+                extensions: ['mp3', 'wav', 'ogg']
+            }]
+        });
+
+        if (file && typeof file === 'string') {
+            // Use just the filename as standard convention for PoE filters
+            // But allow preserving volume if it exists
+            const current = customAlertSound.value;
+            const currentInfo = current.match(/(.*)\s+(\d+)$/);
+            const vol = currentInfo ? ' ' + currentInfo[2] : '';
+            
+            // Extract basename for cleaner filter file (assuming files are next to filter)
+            // If user wants full path, they can edit it manually or we can change this policy.
+            // Using basic replacement for cross-platform path separators
+            const basename = file.replace(/^.*[\\/]/, '');
+            
+            customAlertSound.value = basename + vol;
+        }
+    } catch (err) {
+        console.error('Failed to open dialog:', err);
+    }
+};
+
+const disableDropSound = computed({
+    get: () => findLineIndex('DisableDropSound') !== -1,
+    set: (v) => {
+        if (v) {
+            if (findLineIndex('DisableDropSound') === -1) {
+                localBlock.value.lines.push({ key: 'DisableDropSound', values: [], raw: '' });
+            }
+        } else {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== 'disabledropsound');
+        }
+    }
+});
+
+const disableDropSoundIfAlertSound = computed({
+    get: () => findLineIndex('DisableDropSoundIfAlertSound') !== -1,
+    set: (v) => {
+        if (v) {
+             if (findLineIndex('DisableDropSoundIfAlertSound') === -1) {
+                localBlock.value.lines.push({ key: 'DisableDropSoundIfAlertSound', values: [], raw: '' });
+            }
+        } else {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== 'disabledropsoundifalertsound');
+        }
+    }
+});
+
+const shouldContinue = computed({
+    get: () => findLineIndex('Continue') !== -1,
+    set: (v) => {
+        if (v) {
+             if (findLineIndex('Continue') === -1) {
+                // Continue is typically the last line, but order doesn't strictly matter for parsing, 
+                // though conventionally it's at the end.
+                localBlock.value.lines.push({ key: 'Continue', values: [], raw: '' });
+            }
+        } else {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== 'continue');
+        }
+    }
+});
+
+// Numeric/Compare Fields
+const createNumericComputed = (key: string) => computed({
+    get: () => {
+        const idx = findLineIndex(key);
+        if (idx === -1) return '';
+        const line = localBlock.value.lines[idx];
+        // Return format: ">= 65" or just "65"
+        return (line.operator ? line.operator + ' ' : '') + line.values.join(' ');
+    },
+    set: (val) => {
+        if (!val.trim()) {
+            // Remove case-insensitively
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== key.toLowerCase());
+            return;
+        }
+        // Split operator from value e.g. ">= 65" -> op:">=", val:"65"
+        // Regex to separate operator from numbers
+        const parts = val.trim().match(/^([<>=!]+)?\s*(.*)$/);
+        let operator: string | undefined = undefined;
+        let valueStr = val;
+        
+        if (parts) {
+            if (parts[1]) operator = parts[1];
+            valueStr = parts[2];
+        }
+
+        const values = valueStr.split(/\s+/).filter(Boolean);
+        
+        // Update or Add
+        const idx = findLineIndex(key);
+        const newLine = { key, operator, values, raw: '' };
+        
+        if (idx >= 0) {
+            localBlock.value.lines[idx] = newLine;
+        } else {
+            localBlock.value.lines.push(newLine);
+        }
+    }
+});
+
+const createBooleanComputed = (key: string) => computed({
+    // Returns: 'True' | 'False' | '' (meaning undefined/ignore)
+    get: () => {
+        const idx = findLineIndex(key);
+        if (idx === -1) return '';
+        const line = localBlock.value.lines[idx];
+        
+        // If the line exists but has no values, treat as True (legacy behavior fallback)
+        if (line.values.length === 0) return 'True';
+        
+        if (line.values.includes('True')) return 'True';
+        if (line.values.includes('False')) return 'False';
+        return '';
+    },
+    set: (val: string) => {
+        if (!val) {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== key.toLowerCase());
+        } else {
+            const idx = findLineIndex(key);
+            // Always set explicit True/False for clarity and compatibility
+            const newLine = { key, values: [val], raw: '' };
+            if (idx >= 0) localBlock.value.lines[idx] = newLine;
+            else localBlock.value.lines.push(newLine);
+        }
+    }
+});
+
+// Basic Conditions
+const itemLevel = createNumericComputed('ItemLevel');
+const dropLevel = createNumericComputed('DropLevel');
+const quality = createNumericComputed('Quality');
+const rarity = createNumericComputed('Rarity'); // Enhanced to support >= Rare
+const stackSize = createNumericComputed('StackSize');
+const width = createNumericComputed('Width');
+const height = createNumericComputed('Height');
+
+// Sockets
+const sockets = createNumericComputed('Sockets');
+const linkedSockets = createNumericComputed('LinkedSockets');
+// SocketGroup can be complex: "RRG", "2R 2G", etc.
+// It is NOT quoted.
+const socketGroup = computed({
+    get: () => getLineValue('SocketGroup'), // e.g. "3G" or "4RGB"
+    set: (v) => setLineValue('SocketGroup', v, false) // No quotes
+});
+
+// Map Info
+const mapTier = createNumericComputed('MapTier');
+const areaLevel = createNumericComputed('AreaLevel');
+const blightedMap = createBooleanComputed('BlightedMap');
+const uberBlightedMap = createBooleanComputed('UberBlightedMap');
+const shapedMap = createBooleanComputed('ShapedMap');
+const elderMap = createBooleanComputed('ElderMap');
+
+// Gem Info
+const gemLevel = createNumericComputed('GemLevel');
+const transfiguredGem = computed({
+    // TransfiguredGem can be boolean (True/False) OR string ("Leap Slam")
+    // For simplicity, treat as string input
+    get: () => getLineValue('TransfiguredGem'),
+    set: (v) => setLineValue('TransfiguredGem', v, true) // Needs quotes if name
+});
+
+// Influence & Status
+const identified = createBooleanComputed('Identified');
+const corrupted = createBooleanComputed('Corrupted');
+const corruptedMods = createNumericComputed('CorruptedMods');
+const mirrored = createBooleanComputed('Mirrored');
+const fracturedItem = createBooleanComputed('FracturedItem');
+const synthesisedItem = createBooleanComputed('SynthesisedItem');
+const replica = createBooleanComputed('Replica');
+const elderItem = createBooleanComputed('ElderItem');
+const shaperItem = createBooleanComputed('ShaperItem');
+const hasInfluence = computed({
+    get: () => getLineValue('HasInfluence'),
+    set: (v) => setLineValue('HasInfluence', v)
+});
+const hasImplicitMod = createBooleanComputed('HasImplicitMod');
+const hasExplicitMod = computed({
+    get: () => getLineValue('HasExplicitMod'), // Complex: >= 1 "ModA"
+    set: (v) => setLineValue('HasExplicitMod', v, true) 
+});
+
+const anyEnchantment = createBooleanComputed('AnyEnchantment');
+const hasEnchantment = computed({
+    get: () => getLineValue('HasEnchantment'),
+    set: (v) => setLineValue('HasEnchantment', v, true)
+});
+// Removed duplicate declaration of hasImplicitMod
+
+const hasEaterOfWorldsImplicit = createNumericComputed('HasEaterOfWorldsImplicit');
+const hasSearingExarchImplicit = createNumericComputed('HasSearingExarchImplicit');
+// baseDefencePercentile already defined as baseDefencePct below, avoiding duplicate
+// const baseDefencePercentile = createNumericComputed('BaseDefencePercentile'); 
+
+// Base Stats
+const baseArmour = createNumericComputed('BaseArmour');
+const baseEvasion = createNumericComputed('BaseEvasion');
+const baseES = createNumericComputed('BaseEnergyShield');
+const baseWard = createNumericComputed('BaseWard');
+const baseDefencePct = createNumericComputed('BaseDefencePercentile');
+
+// Cluster Jewels
+const enchantmentPassiveNode = computed({
+    get: () => getLineValue('EnchantmentPassiveNode'),
+    set: (v) => setLineValue('EnchantmentPassiveNode', v, true) // Needs quotes
+});
+const enchantmentPassiveNum = createNumericComputed('EnchantmentPassiveNum');
+
+// Advanced Status & Corruptions
+const twiceCorrupted = createBooleanComputed('TwiceCorrupted');
+const scourged = createNumericComputed('Scourged');
+const foulborn = createBooleanComputed('Foulborn');
+const hasCruciblePassiveTree = createBooleanComputed('HasCruciblePassiveTree');
+const hasVaalUniqueMod = createBooleanComputed('HasVaalUniqueMod');
+const isVaalUnique = createBooleanComputed('IsVaalUnique');
+const archnemesisMod = computed({
+    get: () => getLineValue('ArchnemesisMod'),
+    set: (v) => setLineValue('ArchnemesisMod', v, true)
+});
+
+// PoE 2 / Future
+const waystoneTier = createNumericComputed('WaystoneTier');
+const unidentifiedItemTier = createNumericComputed('UnidentifiedItemTier');
+
+// Colors in 0-255 format
+const textColor = computed({ 
+    get: () => getLineValue('SetTextColor'), 
+    set: (v) => setLineValue('SetTextColor', v) 
+});
+const bgColor = computed({ 
+    get: () => getLineValue('SetBackgroundColor'), 
+    set: (v) => setLineValue('SetBackgroundColor', v) 
+});
+const borderColor = computed({ 
+    get: () => getLineValue('SetBorderColor'), 
+    set: (v) => setLineValue('SetBorderColor', v) 
+});
+const playEffect = computed({ 
+    get: () => getLineValue('PlayEffect'), 
+    set: (v) => setLineValue('PlayEffect', v) 
+});
+const fontSize = computed({
+    get: () => getLineValue('SetFontSize'), 
+    set: (v) => setLineValue('SetFontSize', v) 
+});
+const minimapIcon = computed({
+    get: () => getLineValue('MinimapIcon'), 
+    set: (v) => setLineValue('MinimapIcon', v) 
+});
+
+
+// Helper to convert PoE color (space separated) to CSS hex for preview (approximate)
+const toCssColor = (str: string) => {
+    if (!str) return 'transparent';
+    const parts = str.split(' ').map(n => parseInt(n));
+    if (parts.length >= 3) {
+        const a = parts[3] !== undefined ? parts[3] / 255 : 1;
+        return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${a})`;
+    }
+    return 'transparent';
+};
+
+const toggleExpand = () => isExpanded.value = !isExpanded.value;
+
+// Known Keys to exclude from Custom Rules list
+const knownKeys = new Set([
+  'Class', 'BaseType', 
+  'ItemLevel', 'DropLevel', 'Quality', 'Rarity', 'StackSize', 'Width', 'Height', 'Identified',
+  'Sockets', 'LinkedSockets', 'SocketGroup',
+  'BaseArmour', 'BaseEvasion', 'BaseEnergyShield', 'BaseWard', 'BaseDefencePercentile',
+  'HasEaterOfWorldsImplicit', 'HasSearingExarchImplicit', 'HasEnchantment', 'AnyEnchantment',
+  'EnchantmentPassiveNode', 'EnchantmentPassiveNum',
+  'HasImplicitMod', 'Mirrored', 'FracturedItem', 'SynthesisedItem', 'Replica',
+  'TwiceCorrupted', 'HasCruciblePassiveTree', 'Foulborn', 
+  'ShaperItem', 'ElderItem', 'Corrupted', 'HasInfluence', 'HasExplicitMod', 'CorruptedMods',
+  'MapTier', 'AreaLevel', 'GemLevel', 'TransfiguredGem',
+  'BlightedMap', 'UberBlightedMap', 'ShapedMap', 'ElderMap',
+  'WaystoneTier', 'UnidentifiedItemTier', 'ArchnemesisMod', 'Scourged', 'HasVaalUniqueMod', 'IsVaalUnique',
+  'SetTextColor', 'SetBackgroundColor', 'SetBorderColor', 'PlayEffect', 'SetFontSize', 'MinimapIcon', 'PlayAlertSound', 'CustomAlertSound',
+  'DisableDropSound', 'DisableDropSoundIfAlertSound', 'Continue'
+]);
+
+// Helper for Custom Rules
+const addCustomRule = () => {
+    localBlock.value.lines.push({
+        key: 'NewRule',
+        values: ['Value'], // default placeholder
+        operator: undefined,
+        raw: ''
+    });
+};
+
+const removeLineAtIndex = (idx: number) => {
+    localBlock.value.lines.splice(idx, 1);
+};
+
+</script>
+
+<template>
+  <div class="filter-block-card" :class="{ expanded: isExpanded }">
+    <!-- Header Summary -->
+    <div class="block-header" @click="toggleExpand">
+      <div class="header-left">
+        <div class="status-indicator" :class="localBlock.type.toLowerCase()"></div>
+        <div class="header-info">
+            <span class="header-title" :title="baseTypes || itemClass || localBlock.name">
+                {{ baseTypes || itemClass || localBlock.name || localBlock.rawHeader || 'Untitled Rule' }}
+            </span>
+            <div class="preview-tags" v-if="!isExpanded">
+                {{ [itemLevel ? 'Lvl ' + itemLevel : '', rarity].filter(Boolean).join(', ') }}
+            </div>
+        </div>
+      </div>
+      <div class="header-right">
+         <button @click.stop="emit('delete')" class="glass-button icon danger" title="Delete Rule">❌</button>
+         <select v-model="localBlock.type" class="glass-select small" @click.stop>
+            <option value="Show">Show</option>
+            <option value="Hide">Hide</option>
+            <option value="Minimal">Minimal</option>
+         </select>
+         <div class="expand-icon">{{ isExpanded ? '▼' : '▶' }}</div>
+      </div>
+    </div>
+
+    <!-- Expanded Editor -->
+    <div v-if="isExpanded" class="block-body">
+         
+         <!-- Core Conditions (Most Important) -->
+         <div class="form-row full-width">
+            <label>Base Type (Item Name)</label>
+            <textarea 
+                v-model="baseTypes" 
+                class="glass-textarea" 
+                rows="2"
+                placeholder='e.g. "Divine Orb", "Chaos Orb"'
+             ></textarea>
+         </div>
+
+         <div class="form-row full-width">
+            <label>Item Class</label>
+            <input v-model="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
+         </div>
+
+         <!-- Detailed Conditions -->
+         <div class="conditions-container">
+            <!-- 1. Requirements & General -->
+            <div class="section-title">General Requirements</div>
+            <div class="form-grid four-col">
+                <div class="form-group">
+                    <label title="ItemLevel e.g. >= 85">Item Level</label>
+                    <input v-model="itemLevel" class="glass-input small" placeholder=">= 60" />
+                </div>
+                <div class="form-group">
+                    <label>Drop Level</label>
+                    <input v-model="dropLevel" class="glass-input small" placeholder=">= 1" />
+                </div>
+                <div class="form-group">
+                    <label>Quality</label>
+                    <input v-model="quality" class="glass-input small" placeholder=">= 20" />
+                </div>
+                <div class="form-group">
+                    <label>Rarity</label>
+                    <select v-model="rarity" class="glass-select small">
+                        <option value="">Any</option>
+                        <option value="Normal">Normal</option>
+                        <option value="Magic">Magic</option>
+                        <option value="Rare">Rare</option>
+                        <option value="Unique">Unique</option>
+                        <option value=">= Normal">>= Normal</option>
+                        <option value=">= Magic">>= Magic</option>
+                        <option value=">= Rare">>= Rare</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Stack Size</label>
+                    <input v-model="stackSize" class="glass-input small" placeholder=">= 10" />
+                </div>
+                <div class="form-group">
+                    <label>Width</label>
+                    <input v-model="width" class="glass-input small" placeholder="<= 1" />
+                </div>
+                <div class="form-group">
+                    <label>Height</label>
+                    <input v-model="height" class="glass-input small" placeholder="<= 2" />
+                </div>
+                 <div class="form-group">
+                    <label>Identified</label>
+                    <select v-model="identified" class="glass-select small">
+                        <option value="">Ignore</option>
+                        <option value="True">True</option>
+                        <option value="False">False</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 2. Sockets & Links -->
+            <div class="section-title">Sockets</div>
+            <div class="form-grid four-col">
+                 <div class="form-group">
+                     <label>Sockets (Count)</label>
+                     <input v-model="sockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
+                 </div>
+                 <div class="form-group">
+                     <label>Linked Sockets</label>
+                     <input v-model="linkedSockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
+                 </div>
+                 <div class="form-group start-col-span-2">
+                     <label>Socket Group (Specific Colors)</label>
+                     <input v-model="socketGroup" class="glass-input small" placeholder="e.g. 3G or 4RGB or 6W" />
+                 </div>
+            </div>
+
+            <!-- 3. Base Defences -->
+            <div class="section-title">Base Stats (Defences)</div>
+            <div class="form-grid four-col">
+                 <div class="form-group">
+                     <label>Armour</label>
+                     <input v-model="baseArmour" class="glass-input small" placeholder="> 0" />
+                 </div>
+                 <div class="form-group">
+                     <label>Evasion</label>
+                     <input v-model="baseEvasion" class="glass-input small" placeholder="> 0" />
+                 </div>
+                 <div class="form-group">
+                     <label>Energy Shield</label>
+                     <input v-model="baseES" class="glass-input small" placeholder="> 0" />
+                 </div>
+                 <div class="form-group">
+                     <label>Base Percentile</label>
+                     <!-- using baseDefencePct as defined in script -->
+                     <input v-model="baseDefencePct" class="glass-input small" placeholder=">= 90" />
+                 </div>
+                 <div class="form-group">
+                     <label>Ward</label>
+                     <input v-model="baseWard" class="glass-input small" placeholder="> 0" />
+                 </div>
+            </div>
+
+            <!-- 4. Influence, Enchant & Status -->
+            <div class="section-title">Enchants, Clusters & Eldritch</div>
+            <div class="form-grid four-col">
+                <div class="form-group">
+                    <label>Eater Tier (1-6)</label>
+                    <input v-model="hasEaterOfWorldsImplicit" class="glass-input small" placeholder=">= 1" />
+                </div>
+                <div class="form-group">
+                    <label>Exarch Tier (1-6)</label>
+                    <input v-model="hasSearingExarchImplicit" class="glass-input small" placeholder=">= 1" />
+                </div>
+                 <div class="form-group start-col-span-2">
+                    <label>Enchant Name</label>
+                    <input v-model="hasEnchantment" class="glass-input small" placeholder='Name / "Tier"' />
+                </div>
+                
+                <!-- Cluster Jewels -->
+                <div class="form-group start-col-span-2">
+                    <label>Cluster Passive (Small Passives)</label>
+                    <input v-model="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
+                </div>
+                <div class="form-group">
+                    <label>Cluster Count</label>
+                    <input v-model="enchantmentPassiveNum" class="glass-input small" placeholder="<= 5" />
+                </div>
+                
+                <!-- Boolean Toggles Row -->
+                <div class="form-group checkbox-group-inline full-width">
+                    <label class="bool-check" title="Any Enchantment"><input type="checkbox" v-model="anyEnchantment" true-value="True" false-value="" /> Enchanted</label>
+                    <label class="bool-check" title="Has Implicit"><input type="checkbox" v-model="hasImplicitMod" true-value="True" false-value="" /> Implicit</label>
+                    <label class="bool-check"><input type="checkbox" v-model="mirrored" true-value="True" false-value="" /> Mirrored</label>
+                    <label class="bool-check"><input type="checkbox" v-model="fracturedItem" true-value="True" false-value="" /> Fractured</label>
+                    <label class="bool-check"><input type="checkbox" v-model="synthesisedItem" true-value="True" false-value="" /> Synth</label>
+                    <label class="bool-check"><input type="checkbox" v-model="replica" true-value="True" false-value="" /> Replica</label>
+                    <label class="bool-check"><input type="checkbox" v-model="twiceCorrupted" true-value="True" false-value="" /> Dbl Corrupt</label>
+                    <label class="bool-check"><input type="checkbox" v-model="hasCruciblePassiveTree" true-value="True" false-value="" /> Crucible</label>
+                    <label class="bool-check"><input type="checkbox" v-model="foulborn" true-value="True" false-value="" /> Foulborn</label>
+                </div>
+            </div>
+
+            <div class="form-grid four-col">
+                <div class="form-group checkbox-group-inline start-col-span-2">
+                     <label class="bool-check"><input type="checkbox" v-model="shaperItem" true-value="True" false-value="" /> Shaper Item</label>
+                     <label class="bool-check"><input type="checkbox" v-model="elderItem" true-value="True" false-value="" /> Elder Item</label>
+                </div>
+                <div class="form-group">
+                    <label>Corrupted</label>
+                    <select v-model="corrupted" class="glass-select small">
+                        <option value="">Ignore</option>
+                        <option value="True">Yes</option>
+                        <option value="False">No</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Influence</label>
+                    <select v-model="hasInfluence" class="glass-select small">
+                        <option value="">Ignore</option>
+                        <option value="Shaper">Shaper</option>
+                        <option value="Elder">Elder</option>
+                        <option value="Crusader">Crusader</option>
+                        <option value="Hunter">Hunter</option>
+                        <option value="Redeemer">Redeemer</option>
+                        <option value="Warlord">Warlord</option>
+                        <option value="None">None</option>
+                    </select>
+                </div>
+                 <div class="form-group">
+                     <label>Explicit Mods</label>
+                     <input v-model="hasExplicitMod" class="glass-input small" placeholder='>= 1 "Mod Name"' />
+                 </div>
+                 <div class="form-group">
+                     <label>Corrupted Mods</label>
+                     <input v-model="corruptedMods" class="glass-input small" placeholder=">= 1" />
+                 </div>
+            </div>
+
+            <!-- 5. Map & Gems -->
+            <div class="section-title">Maps & Gems</div>
+            <div class="form-grid four-col">
+                 <div class="form-group">
+                     <label>Map Tier</label>
+                     <input v-model="mapTier" class="glass-input small" placeholder=">= 1" />
+                 </div>
+                 <div class="form-group">
+                     <label>Area Level</label>
+                     <input v-model="areaLevel" class="glass-input small" placeholder=">= 68" />
+                 </div>
+                 <div class="form-group">
+                     <label>Gem Level</label>
+                     <input v-model="gemLevel" class="glass-input small" placeholder=">= 20" />
+                 </div>
+                  <div class="form-group">
+                     <label>Transfigured</label>
+                     <input v-model="transfiguredGem" class="glass-input small" placeholder="True / Name" />
+                 </div>
+            </div>
+            <div class="form-row checkbox-row">
+                 <label class="bool-check"><input type="checkbox" v-model="blightedMap" true-value="True" false-value="" /> Blighted Map</label>
+                 <label class="bool-check"><input type="checkbox" v-model="uberBlightedMap" true-value="True" false-value="" /> Uber Blight</label>
+                 <label class="bool-check"><input type="checkbox" v-model="shapedMap" true-value="True" false-value="" /> Shaped</label>
+                 <label class="bool-check"><input type="checkbox" v-model="elderMap" true-value="True" false-value="" /> Elder Map</label>
+            </div>
+            
+            <!-- 6. Special / PoE 2 -->
+             <div class="section-title">Special & Future (PoE 2)</div>
+            <div class="form-grid four-col">
+                <div class="form-group">
+                    <label>Waystone Tier</label>
+                    <input v-model="waystoneTier" class="glass-input small" placeholder=">= 1" />
+                </div>
+                 <div class="form-group">
+                    <label>Unidentified Tier</label>
+                    <input v-model="unidentifiedItemTier" class="glass-input small" placeholder=">= 1" />
+                </div>
+                 <div class="form-group">
+                    <label>Archnemesis Mod</label>
+                    <input v-model="archnemesisMod" class="glass-input small" placeholder='Name' />
+                </div>
+                 <div class="form-group">
+                    <label>Scourge Tier</label>
+                    <input v-model="scourged" class="glass-input small" placeholder=">= 1" />
+                </div>
+                <!-- Boolean Toggles Row -->
+                <div class="form-group checkbox-group-inline full-width">
+                     <label class="bool-check"><input type="checkbox" v-model="hasVaalUniqueMod" true-value="True" false-value="" /> Vaal Unique Mod</label>
+                     <label class="bool-check"><input type="checkbox" v-model="isVaalUnique" true-value="True" false-value="" /> Is Vaal Unique</label>
+                </div>
+            </div>
+            
+            <!-- 7. Custom / Other Rules -->
+            <div class="section-title">Other Rules (Raw Edit)</div>
+            <div class="custom-rules-list">
+                <div v-for="(line, idx) in localBlock.lines" :key="idx">
+                    <div v-if="!knownKeys.has(line.key)" class="custom-rule-row">
+                         <input v-model="line.key" class="glass-input small key-input" placeholder="Key" />
+                         <select v-model="line.operator" class="glass-select small op-select">
+                            <option :value="undefined"></option>
+                            <option value="=">=</option>
+                            <option value="==">==</option>
+                            <option value=">">&gt;</option>
+                            <option value="<">&lt;</option>
+                            <option value=">=">&gt;=</option>
+                            <option value="<=">&lt;=</option>
+                         </select>
+                         <input 
+                            :value="line.values.join(' ')" 
+                            @input="(e: Event) => line.values = (e.target as HTMLInputElement).value.split(' ')"
+                            class="glass-input small value-input" 
+                            placeholder="Value(s)" 
+                         />
+                         <button @click="removeLineAtIndex(idx)" class="glass-button icon danger">🗑️</button>
+                    </div>
+                </div>
+                <button @click="addCustomRule" class="glass-button small full-width dashed">+ Add Custom Rule</button>
+            </div>
+         </div>
+
+         <!-- Metadata / Comments -->
+         <div class="form-grid">
+             <div class="form-group start-col-span-3">
+                 <label>Comment Header / Description</label>
+                 <textarea v-model="localBlock.rawHeader" class="glass-textarea small" rows="2" placeholder="# Comments..."></textarea>
+             </div>
+         </div>
+         
+         <!-- Classification (Comments) -->
+         <div class="form-grid">
+             <div class="form-group">
+                 <label>Category (Tag)</label>
+                 <input v-model="localBlock.category" class="glass-input small" placeholder="e.g. 基础" />
+             </div>
+             <div class="form-group">
+                 <label>Alias / Custom Name</label>
+                 <input v-model="localBlock.name" class="glass-input small" placeholder="e.g. 货币通货" />
+             </div>
+             <div class="form-group">
+                 <label>Priority (Tag)</label>
+                 <input v-model="localBlock.priority" class="glass-input small" placeholder="e.g. 1" />
+             </div>
+         </div>
+
+         <!-- Colors -->
+         <div class="form-grid">
+            <div class="form-group">
+                <label>Text Color</label>
+                <div class="color-input-group">
+                    <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
+                    <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
+                </div>
+            </div>
+            <div class="form-group">
+                 <label>Background</label>
+                 <div class="color-input-group">
+                     <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
+                     <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
+                 </div>
+             </div>
+             <div class="form-group">
+                 <label>Border</label>
+                 <div class="color-input-group">
+                     <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
+                     <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
+                 </div>
+             </div>
+         </div>
+
+         <!-- Display & Sound -->
+         <div class="form-grid four-col">
+             <div class="form-group">
+                 <label>Font Size</label>
+                 <input v-model="fontSize" class="glass-input small" placeholder="32" />
+             </div>
+             <div class="form-group">
+                 <label>Play Effect</label>
+                 <input v-model="playEffect" class="glass-input small" placeholder="Color [Temp]" />
+             </div>
+             <div class="form-group">
+                 <label>Minimap Icon</label>
+                 <input v-model="minimapIcon" class="glass-input small" placeholder="Size Clr Shape" />
+             </div>
+             <div class="form-group">
+                 <label>Alert Sound</label>
+                 <input v-model="playAlertSound" class="glass-input small" placeholder="Id Vol" />
+             </div>
+             <div class="form-group">
+                 <label>Custom Sound</label>
+                 <div class="input-group">
+                    <input v-model="customAlertSound" class="glass-input small" placeholder='File "Vol"' />
+                    <button @click="browseSound" class="glass-button icon" title="Select File">📂</button>
+                 </div>
+             </div>
+         </div>
+         
+         <div class="form-row checkbox-row">
+             <label class="checkbox-label">
+                 <input type="checkbox" v-model="disableDropSound" />
+                 <span>Disable Drop Sound</span>
+             </label>
+             <label class="checkbox-label">
+                 <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
+                 <span>Quiet if Alert</span>
+             </label>
+             <label class="checkbox-label">
+                 <input type="checkbox" v-model="shouldContinue" />
+                 <span>Continue (Match Next)</span>
+             </label>
+         </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.filter-block-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.filter-block-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.filter-block-card.expanded {
+    background: rgba(20, 20, 20, 0.6);
+    border-color: rgba(64, 158, 255, 0.3);
+}
+
+.block-header {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #666;
+}
+
+.status-indicator.show { background: #67c23a; box-shadow: 0 0 4px #67c23a; }
+.status-indicator.hide { background: #f56c6c; }
+
+.header-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.header-title {
+    font-weight: bold;
+    font-size: 14px;
+    color: #eee;
+}
+
+.preview-tags {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.block-body {
+    padding: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.start-col-span-2 { grid-column: span 2; }
+.start-col-span-3 { grid-column: span 3; }
+
+.form-row.full-width {
+    width: 100%;
+}
+
+label {
+    display: block;
+    font-size: 11px;
+    color: #aaa;
+    margin-bottom: 4px;
+}
+
+.color-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.color-preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid #444;
+}
+
+/* Glass Inputs */
+.glass-input, .glass-textarea, .glass-select {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #eee;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.glass-input:focus, .glass-textarea:focus, .glass-select:focus {
+    outline: none;
+    border-color: #409eff;
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.input-group {
+    display: flex;
+    gap: 4px;
+}
+.glass-button.icon {
+    padding: 2px 6px;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.glass-input-transparent {
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    padding: 0;
+    width: 100%;
+}
+.glass-input-transparent:focus {
+    outline: none;
+    border-bottom: 1px solid #409eff;
+}
+
+.glass-input.small {
+    padding: 4px 6px;
+    font-size: 12px;
+}
+
+.glass-select.small {
+    width: auto;
+    padding: 2px 8px;
+    font-size: 12px;
+    height: 24px;
+}
+.checkbox-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.form-grid.four-col {
+    grid-template-columns: repeat(4, 1fr);
+}
+.section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #666;
+    margin: 8px 0 4px 0;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 2px;
+}
+.checkbox-group-inline {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    height: 100%;
+}
+.bool-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.conditions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #eee;
+}
+
+.form-group.start-col-span-2 {
+    grid-column: span 2;
+}
+
+.glass-textarea.small {
+    font-size: 12px;
+    padding: 6px;
+    line-height: normal;
+}
+
+.custom-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.custom-rule-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.key-input {
+    width: 140px !important;
+    flex-shrink: 0;
+}
+.op-select {
+    width: 60px !important;
+    flex-shrink: 0;
+}
+.value-input {
+    flex: 1;
+}
+.full-width.dashed {
+    border-style: dashed;
+    margin-top: 8px;
+    opacity: 0.6;
+}
+.full-width.dashed:hover {
+    opacity: 1;
+    border-style: solid;
+}
+</style>

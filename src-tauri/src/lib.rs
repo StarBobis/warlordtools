@@ -1,15 +1,71 @@
+use std::path::Path;
+use std::fs;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+fn scan_filter_files(path: String) -> Result<Vec<String>, String> {
+    let mut filters = Vec::new();
+    let root = Path::new(&path);
+
+    if !root.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    // Recursively scan
+    fn visit_dirs(dir: &Path, filters: &mut Vec<String>) -> std::io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    visit_dirs(&path, filters)?;
+                } else {
+                    if let Some(ext) = path.extension() {
+                        if ext == "filter" {
+                            if let Some(path_str) = path.to_str() {
+                                filters.push(path_str.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    match visit_dirs(root, &mut filters) {
+        Ok(_) => Ok(filters),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn read_file_content(path: String) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_file_content(path: String, content: String) -> Result<(), String> {
+    fs::write(path, content).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet, 
+            scan_filter_files, 
+            read_file_content, 
+            write_file_content
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

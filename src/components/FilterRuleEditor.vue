@@ -962,13 +962,13 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                 <label class="bool-check" style="margin-top: 4px;">
                     <input type="checkbox" v-model="disableDropSound" />
-                    <span>关闭默认掉落音效 [DisableDropSound]</span>
+                    <span>关闭掉落音效 [DisableDropSound]</span>
                 </label>
              </div>
              
              <!-- Custom Sound -->
              <div class="form-group full-width" style="grid-column: 1 / -1;">
-                 <label>自定义音效 [CustomAlertSound]</label>
+                 <label>自定义掉落音效 [CustomAlertSound]</label>
                  <div class="input-group">
                     <input v-model="customAlertSound" class="glass-input small" placeholder='请点击右侧按钮选择音效文件' />
                     <button @click="browseSound" class="glass-button icon" title="选择音效文件">📂</button>

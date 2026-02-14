@@ -168,9 +168,55 @@ const itemClass = computed({
     set: (v) => setLineValue('Class', v, true)
 });
 
-const playAlertSound = computed({
-    get: () => getLineValue('PlayAlertSound'),
-    set: (v) => setLineValue('PlayAlertSound', v)
+const alertSoundId = computed({
+    get: () => {
+        const val = getLineValue('PlayAlertSound');
+        if (!val) return '';
+        const parts = val.trim().split(' ');
+        return parts[0] || '';
+    },
+    set: (newId) => {
+        const current = getLineValue('PlayAlertSound');
+        const parts = current ? current.trim().split(' ') : [];
+        let vol = '50';
+        if (parts.length >= 2) {
+            vol = parts[1];
+        }
+        
+        if (!newId) {
+             setLineValue('PlayAlertSound', '');
+        } else {
+             setLineValue('PlayAlertSound', `${newId} ${vol}`);
+        }
+    }
+});
+
+const alertSoundVolume = computed({
+    get: () => {
+        const val = getLineValue('PlayAlertSound');
+        if (!val) return 50;
+        const parts = val.trim().split(' ');
+        if (parts.length >= 2) {
+             const n = parseInt(parts[1]);
+             return isNaN(n) ? 50 : n;
+        }
+        return 50; // Default to 50 as requested if volume is missing
+    },
+    set: (v) => {
+        // Clamp between 0 and 300
+        const newVol = Math.max(0, Math.min(300, v === '' ? 50 : Number(v)));
+        
+        const current = getLineValue('PlayAlertSound');
+        const parts = current ? current.trim().split(' ') : [];
+        let id = '1';
+        if (parts.length >= 1 && parts[0]) {
+            id = parts[0];
+        } else {
+             // If no ID exists (rule disabled), defaulting to ID 1 to enable it
+             id = '1';
+        }
+        setLineValue('PlayAlertSound', `${id} ${newVol}`);
+    }
 });
 
 const customAlertSound = computed({
@@ -514,7 +560,17 @@ const playEffectTemp = computed({
 
 const fontSize = computed({
     get: () => getLineValue('SetFontSize'), 
-    set: (v) => setLineValue('SetFontSize', v) 
+    set: (v) => {
+        if (!v) {
+            setLineValue('SetFontSize', '');
+            return;
+        }
+        const n = parseInt(v);
+        if (!isNaN(n)) {
+            const clamped = Math.max(1, Math.min(45, n));
+            setLineValue('SetFontSize', clamped.toString());
+        }
+    }
 });
 const minimapIcon = computed({
     get: () => getLineValue('MinimapIcon'), 
@@ -968,7 +1024,7 @@ const removeLineAtIndex = (idx: number) => {
          <div class="form-grid four-col">
              <div class="form-group">
                  <label>Font Size</label>
-                 <input v-model="fontSize" class="glass-input small" placeholder="32" />
+                 <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
              </div>
              <div class="form-group">
                  <label>Play Effect</label>
@@ -987,9 +1043,18 @@ const removeLineAtIndex = (idx: number) => {
                  <label>Minimap Icon</label>
                  <input v-model="minimapIcon" class="glass-input small" placeholder="Size Clr Shape" />
              </div>
-             <div class="form-group">
+             <div class="form-group start-col-span-2">
                  <label>Alert Sound</label>
-                 <input v-model="playAlertSound" class="glass-input small" placeholder="Id Vol" />
+                 <div style="display: flex; gap: 4px; align-items: center;">
+                    <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
+                        <option value="">None</option>
+                        <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
+                    </select>
+                    <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                        <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
+                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">Vol</span>
+                    </div>
+                 </div>
              </div>
              <div class="form-group">
                  <label>Custom Sound</label>

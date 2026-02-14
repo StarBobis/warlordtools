@@ -1,5 +1,17 @@
 use std::path::Path;
 use std::fs;
+pub mod powershell_opener;
+pub use powershell_opener::{open_file, open_folder};
+
+#[tauri::command]
+fn open_folder_cmd(path: String) -> Result<(), String> {
+    open_folder(&path)
+}
+
+#[tauri::command]
+fn open_file_cmd(path: String) -> Result<(), String> {
+    open_file(&path)
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -61,10 +73,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet, 
-            scan_filter_files, 
-            read_file_content, 
-            write_file_content
+            greet,
+            scan_filter_files,
+            read_file_content,
+            write_file_content,
+            open_folder_cmd,
+            open_file_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

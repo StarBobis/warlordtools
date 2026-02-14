@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { configManager } from '../utils/ConfigManager';
 
@@ -17,7 +18,7 @@ onMounted(async () => {
 
 const selectFolder = async () => {
   try {
-    const selected = await open({
+    const selected = await openDialog({
       directory: true,
       multiple: false,
       title: '选择过滤器文件夹',
@@ -41,6 +42,15 @@ const saveSettings = async () => {
     filterStoragePath: filterPath.value,
   });
 };
+
+const openContainingFolder = async () => {
+  try {
+    if (!filterPath.value) return;
+    await invoke('open_folder_cmd', { path: filterPath.value });
+  } catch (e) {
+    console.error('Failed to open folder', e);
+  }
+};
 </script>
 
 <template>
@@ -57,13 +67,17 @@ const saveSettings = async () => {
               <div class="form-item">
                 <label class="form-label">过滤器存储路径</label>
                 <div class="path-selector">
-                  <input 
-                    v-model="filterPath" 
-                    placeholder="请选择过滤器存储路径" 
-                    class="glass-input" 
+                  <input
+                    v-model="filterPath"
+                    placeholder="请选择过滤器存储路径"
+                    class="glass-input"
                     @change="saveSettings"
                   />
+                </div>
+
+                <div class="button-row">
                   <button class="glass-button" @click="selectFolder">更改目录</button>
+                  <button class="glass-button" @click="openContainingFolder">打开所在文件夹</button>
                 </div>
               </div>
           </div>
@@ -279,6 +293,12 @@ const saveSettings = async () => {
   gap: 12px;
   width: 100%;
   align-items: center;
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 /* Standard Input Styling to match Glass feel */

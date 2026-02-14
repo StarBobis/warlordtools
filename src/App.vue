@@ -76,7 +76,9 @@ onMounted(async () => {
       />
 
       <div class="content-area">
-        <component :is="viewComponents[currentView]" />
+        <transition name="page-fade" mode="out-in">
+          <component :is="viewComponents[currentView]" :key="currentView" />
+        </transition>
       </div>
     </div>
   </div>
@@ -183,5 +185,27 @@ body {
 .slide-enter-from,
 .slide-leave-to {
   transform: translateX(100%);
+}
+
+/* Page fade + subtle vertical movement for view changes (short, snappy) */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.page-fade-enter-to {
+  opacity: 1;
+  transform: translateY(0);
+}
+.page-fade-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>

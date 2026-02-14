@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ref, watch } from 'vue';
 
 const { currentView } = defineProps<{
   currentView: string;
@@ -8,6 +9,15 @@ const { currentView } = defineProps<{
 const emit = defineEmits<{
   (e: 'update:currentView', view: string): void;
 }>();
+
+// track last non-settings view so we can toggle back
+const lastNonSettings = ref<string>(currentView as string);
+watch(
+  () => currentView,
+  (val) => {
+    if (val !== 'settings') lastNonSettings.value = val;
+  }
+);
 
 const appWindow = getCurrentWindow();
 
@@ -27,6 +37,14 @@ const closeWindow = async () => {
     console.error('Failed to close window:', error);
   }
 };
+
+const onSettingsClick = () => {
+  if (currentView === 'settings') {
+    emit('update:currentView', lastNonSettings.value || 'filter');
+  } else {
+    emit('update:currentView', 'settings');
+  }
+};
 </script>
 
 <template>
@@ -43,7 +61,7 @@ const closeWindow = async () => {
     </div>
 
     <div class="controls-section">
-      <div class="control-button settings-button" :class="{ active: currentView === 'settings' }" @click="emit('update:currentView', 'settings')" title="Settings">
+      <div class="control-button settings-button" :class="{ active: currentView === 'settings' }" @click="onSettingsClick" title="Settings">
         <span class="gear-icon" aria-hidden="true"></span>
       </div>
       <div class="window-buttons-group">
@@ -138,6 +156,11 @@ const closeWindow = async () => {
   --icon-opacity: 0.82;
   --hover-bg: rgba(255, 255, 255, 0.08);
   --pressed-bg: rgba(255, 255, 255, 0.16);
+  /* crystal-style active settings background with base color for dark backgrounds */
+  --settings-active-base: rgba(64,72,84,0.32);
+  --settings-active-bg: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  --settings-active-border: rgba(255,255,255,0.06);
+  --settings-active-inset: rgba(255,255,255,0.06);
   --close-hover-bg: #f1707a;
   --close-pressed-bg: #d13438;
   --anim: 120ms ease;
@@ -190,7 +213,16 @@ const closeWindow = async () => {
 }
 
 .settings-button.active {
-  background-color: rgba(64, 158, 255, 0.4);
+  background: var(--settings-active-bg), var(--settings-active-base);
+  background-blend-mode: overlay;
+  border: 1px solid var(--settings-active-border);
+  box-shadow: inset 0 1px 0 var(--settings-active-inset), 0 6px 18px rgba(0,0,0,0.18);
+  backdrop-filter: blur(6px);
+}
+
+.settings-button.active .gear-icon {
+  color: #f8fbff;
+  opacity: 1;
 }
 
 .window-buttons-group {

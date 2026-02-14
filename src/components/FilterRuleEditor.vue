@@ -375,8 +375,12 @@ const createNumericComputed = (key: string) => computed({
         const idx = findLineIndex(key);
         if (idx === -1) return '';
         const line = localBlock.value.lines[idx];
-        // Return format: ">= 65" or just "65"
-        return (line.operator ? line.operator + ' ' : '') + line.values.join(' ');
+        const op = line.operator || '';
+        const valStr = line.values.join(' ').trim();
+        if (valStr) {
+            return op ? `${op} ${valStr}` : valStr;
+        }
+        return op; // allow operator-only without forcing trailing space
     },
     set: (val) => {
         if (!val.trim()) {
@@ -396,7 +400,7 @@ const createNumericComputed = (key: string) => computed({
         }
 
         // Use simple split to preserve spaces while typing
-        const values = valueStr.split(' ');
+        const values = valueStr.trim() ? valueStr.split(' ') : [];
         
         // Update or Add
         const idx = findLineIndex(key);

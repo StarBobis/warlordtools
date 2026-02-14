@@ -99,15 +99,15 @@ const openContainingFolder = async () => {
              
              <div class="link-group-mini">
                 <a href="#" class="link-item-mini">
-                  GitHub地址
+                  QQ群: 977107224
                 </a>
                 <a href="#" class="link-item-mini">
-                  提交问题反馈
+                  欢迎提交改进建议
                 </a>
              </div>
 
              <div class="copyright-mini">
-                MIT License<br>&copy; 2026 Warlord Team
+                GPL-3.0 License<br>&copy; 2026 Warlord Team
              </div>
          </div>
       </div>

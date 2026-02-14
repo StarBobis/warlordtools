@@ -202,9 +202,10 @@ const alertSoundVolume = computed({
         }
         return 50; // Default to 50 as requested if volume is missing
     },
-    set: (v) => {
+    set: (v: string | number) => {
         // Clamp between 0 and 300
-        const newVol = Math.max(0, Math.min(300, v === '' ? 50 : Number(v)));
+        const val = v === '' ? 50 : Number(v);
+        const newVol = Math.max(0, Math.min(300, isNaN(val) ? 50 : val));
         
         const current = getLineValue('PlayAlertSound');
         const parts = current ? current.trim().split(' ') : [];
@@ -572,9 +573,103 @@ const fontSize = computed({
         }
     }
 });
-const minimapIcon = computed({
-    get: () => getLineValue('MinimapIcon'), 
-    set: (v) => setLineValue('MinimapIcon', v) 
+// Minimap Icon Components
+const minimapIconSize = computed({
+    get: () => {
+        const val = getLineValue('MinimapIcon');
+        if (!val) return '';
+        const parts = val.trim().split(' ');
+        return parts[0] || '';
+    },
+    set: (v: string | number) => {
+        // Clamp 0-2
+        const val = v === '' ? '' : Number(v);
+        let sizeStr = '';
+        if (typeof val === 'number') {
+            sizeStr = Math.max(0, Math.min(2, isNaN(val) ? 0 : val)).toString();
+        }
+
+        const current = getLineValue('MinimapIcon');
+        const parts = current ? current.trim().split(' ') : [];
+        let color = 'White';
+        let shape = 'Circle';
+        
+        if (parts.length >= 2) color = parts[1];
+        if (parts.length >= 3) shape = parts[2];
+        
+        if (sizeStr === '' && !current) {
+            // Do nothing if clearing empty
+        } else if (sizeStr === '') {
+             // If clearing size, maybe remove the whole rule? 
+             // Or keep defaults? Let's assume user wants to remove if clearing size.
+             // But actually, if they are typing, let's just update.
+             // If they set empty, remove rule
+             setLineValue('MinimapIcon', '');
+        } else {
+             setLineValue('MinimapIcon', `${sizeStr} ${color} ${shape}`);
+        }
+    }
+});
+
+const minimapIconColor = computed({
+    get: () => {
+        const val = getLineValue('MinimapIcon');
+        if (!val) return 'White';
+        const parts = val.trim().split(' ');
+        return parts.length >= 2 ? parts[1] : 'White';
+    },
+    set: (v) => {
+        const current = getLineValue('MinimapIcon');
+        const parts = current ? current.trim().split(' ') : [];
+        let size = '0';
+        let shape = 'Circle';
+        
+        if (parts.length >= 1 && parts[0]) size = parts[0];
+        if (parts.length >= 3) shape = parts[2];
+
+        // Valid colors already defined in validEffectColors
+        setLineValue('MinimapIcon', `${size} ${v} ${shape}`);
+    }
+});
+
+const validShapes = [
+    'Circle', 'Diamond', 'Hexagon', 'Square', 'Star', 'Triangle', 
+    'Cross', 'Moon', 'Raindrop', 'Kite', 'Pentagon', 'UpsideDownHouse'
+];
+
+const shapeIcons: Record<string, string> = {
+    'Circle': '●',
+    'Diamond': '◆',
+    'Hexagon': '⬢',
+    'Square': '■',
+    'Star': '★',
+    'Triangle': '▲',
+    'Cross': '✚',
+    'Moon': '☾',
+    'Raindrop': '💧',
+    'Kite': '🪁',
+    'Pentagon': '⬟',
+    'UpsideDownHouse': '⌂'
+};
+
+const minimapIconShape = computed({
+    get: () => {
+        const val = getLineValue('MinimapIcon');
+        if (!val) return 'Circle';
+        const parts = val.trim().split(' ');
+        return parts.length >= 3 ? parts[2] : 'Circle';
+    },
+    set: (v) => {
+        const current = getLineValue('MinimapIcon');
+        const parts = current ? current.trim().split(' ') : [];
+        let size = '0';
+        let color = 'White';
+        
+        if (parts.length >= 1 && parts[0]) size = parts[0];
+        if (parts.length >= 2) color = parts[1];
+
+        setLineValue('MinimapIcon', `${size} ${color} ${v}`);
+    }
 });
 
 
@@ -1026,10 +1121,10 @@ const removeLineAtIndex = (idx: number) => {
                  <label>字体大小</label>
                  <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
              </div>
-             <div class="form-group">
+             <div class="form-group start-col-span-3">
                  <label>光柱颜色</label>
                  <div style="display: flex; gap: 8px; align-items: center;">
-                    <select v-model="playEffectColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[playEffectColor] || 'inherit' }">
+                    <select v-model="playEffectColor" class="glass-select small" :style="{ width: '150px', color: effectColorMap[playEffectColor] || 'inherit' }">
                         <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
                         <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
                     </select>
@@ -1039,10 +1134,37 @@ const removeLineAtIndex = (idx: number) => {
                     </label>
                  </div>
              </div>
-             <div class="form-group">
-                 <label>Minimap Icon</label>
-                 <input v-model="minimapIcon" class="glass-input small" placeholder="Size Clr Shape" />
+             
+             <!-- Minimap Icon - Full Row -->
+             <div class="form-group full-width" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 4px;">
+                 <label style="margin-bottom: 8px;">小地图图标</label>
+                 <div style="display: flex; gap: 16px; align-items: center;">
+                     
+                     <!-- Size -->
+                     <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                        <input type="number" v-model.lazy="minimapIconSize" min="0" max="2" class="glass-input small" style="width: 100%; padding-right: 35px; text-align: center;" placeholder="0-2" />
+                        <span style="position: absolute; right: 8px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">大小</span>
+                    </div>
+
+                    <!-- Color -->
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">颜色:</span>
+                        <select v-model="minimapIconColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[minimapIconColor] || 'inherit' }">
+                            <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
+                        </select>
+                    </div>
+
+                    <!-- Shape -->
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">形状:</span>
+                         <select v-model="minimapIconShape" class="glass-select small" style="flex: 1;">
+                            <option v-for="s in validShapes" :key="s" :value="s">{{ s }} {{ shapeIcons[s] }}</option>
+                        </select>
+                    </div>
+
+                 </div>
              </div>
+
              <div class="form-group start-col-span-2">
                  <label>掉落音效</label>
                  <div style="display: flex; gap: 4px; align-items: center;">
@@ -1056,7 +1178,7 @@ const removeLineAtIndex = (idx: number) => {
                     </div>
                  </div>
              </div>
-             <div class="form-group">
+             <div class="form-group start-col-span-2">
                  <label>Custom Sound</label>
                  <div class="input-group">
                     <input v-model="customAlertSound" class="glass-input small" placeholder='File "Vol"' />

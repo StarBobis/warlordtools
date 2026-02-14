@@ -33,28 +33,26 @@ const filteredBlocks = computed(() => {
     if (!searchQuery.value) return parsedBlocks.value;
     const lower = searchQuery.value.toLowerCase();
     return parsedBlocks.value.filter(b => {
-        // Search in name, header
-        const headerMatch = (b.name || '').toLowerCase().includes(lower) || 
-                            (b.category || '').toLowerCase().includes(lower) ||
-                            (b.rawHeader || '').toLowerCase().includes(lower);
+      // Search in header/metadata (name, category, notes/rawHeader)
+      const headerMatch = (b.name || '').toLowerCase().includes(lower) || 
+                (b.category || '').toLowerCase().includes(lower) ||
+                (b.rawHeader || '').toLowerCase().includes(lower);
                             
-        if (headerMatch) return true;
+      if (headerMatch) return true;
 
-        // Search in BaseType (and Class) content
-        // We look into lines where key is BaseType or Class
-        const contentMatch = b.lines.some(l => {
-            const k = l.key.toLowerCase();
-            if (k === 'basetype' || k === 'class') {
-                return l.values.some(v => {
-                    // Remove quotes for cleaner search matching
-                    const cleanVal = v.replace(/"/g, '').toLowerCase();
-                    return cleanVal.includes(lower);
-                });
-            }
-            return false;
-        });
+      // Search in BaseType/Class content and notes (rawHeader) for completeness
+      const contentMatch = b.lines.some(l => {
+        const k = l.key.toLowerCase();
+        if (k === 'basetype' || k === 'class') {
+          return l.values.some(v => {
+            const cleanVal = v.replace(/"/g, '').toLowerCase();
+            return cleanVal.includes(lower);
+          });
+        }
+        return false;
+      }) || (b.rawHeader || '').toLowerCase().includes(lower);
         
-        return contentMatch;
+      return contentMatch;
     });
 });
 

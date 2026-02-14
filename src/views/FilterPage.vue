@@ -114,6 +114,26 @@ const restoreVisualScroll = async () => {
     }
 };
 
+// Preserve block IDs across mode switches to keep expansion/focus state
+const reuseBlockIds = (prev: FilterBlock[], next: FilterBlock[]) => {
+  const makeSig = (b: FilterBlock) => {
+    const linesSig = b.lines
+      .map(l => `${l.key}:${l.operator ?? ''}:${l.values.join(' ')}`)
+      .join(';');
+    return `${b.rawHeader}|${b.type}|${linesSig}`;
+  };
+
+  const map = new Map<string, string>();
+  prev.forEach(b => map.set(makeSig(b), b.id));
+
+  next.forEach(b => {
+    const id = map.get(makeSig(b));
+    if (id) b.id = id;
+  });
+
+  return next;
+};
+
 // File Context Menu & Operations
 const fileContextMenu = reactive({
     visible: false,
@@ -362,8 +382,9 @@ const switchMode = async (mode: 'visual' | 'code') => {
   }
     
   if (mode === 'visual') {
-    // Switching to visual: Parse current raw text
-    parsedBlocks.value = FilterParser.parse(rawContent.value);
+    // Switching to visual: Parse current raw text and reuse IDs to retain expansion state
+    const newlyParsed = FilterParser.parse(rawContent.value);
+    parsedBlocks.value = reuseBlockIds(parsedBlocks.value, newlyParsed);
     await restoreVisualScroll();
   } else {
     // Switching to code: Stringify current blocks

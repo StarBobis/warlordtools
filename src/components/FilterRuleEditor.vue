@@ -23,31 +23,35 @@ const isExpanded = computed({
   set: (val) => emit('update:expanded', val)
 });
 
-const onContextMenu = (event: MouseEvent) => {
-    emit('open-ctx-menu', event);
+// Controls the visibility of the "Advanced" section
+const showAdvanced = ref(false);
+const toggleAdvanced = () => {
+    showAdvanced.value = !showAdvanced.value;
 };
 
-const localBlock = ref<FilterBlock>(props.block);
+// Use a computed property for localBlock to ensure reactivity with props
+const localBlock = computed(() => props.block);
 
-// Helper to get/set specific properties efficiently
 const findLineIndex = (key: string) => {
     return localBlock.value.lines.findIndex(l => l.key.toLowerCase() === key.toLowerCase());
 };
 
-const getLineValue = (key: string): string => {
-  const line = localBlock.value.lines.find(l => l.key.toLowerCase() === key.toLowerCase());
-  if (!line) return '';
-  // Combine multiple lines? Usually standard filters only have one line per key 
-  // EXCEPT for BaseType/Class where they list multiple values.
-  
-  // Remove quotes for display
-  return line.values.map(v => v.replace(/"/g, '')).join(' ');
+const getLineValue = (key: string) => {
+  const idx = findLineIndex(key);
+  if (idx === -1) return '';
+  const line = localBlock.value.lines[idx];
+  // Join values with space or appropriate separator
+  // Some keys might have multiple values
+  return line.values.join(' ').replace(/"/g, ''); 
 };
 
 const setLineValue = (key: string, val: string, needsQuotes = false) => {
-  // If val is empty, remove the line
-  if (!val.trim()) {
-    localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== key.toLowerCase());
+  if (val === '') {
+    // Remove the line if value is empty
+    const idx = findLineIndex(key);
+    if (idx >= 0) {
+      localBlock.value.lines.splice(idx, 1);
+    }
     return;
   }
 
@@ -323,6 +327,19 @@ const browseSound = async () => {
         console.error('Failed to open dialog:', err);
     }
 };
+
+const disableDropSound = computed({
+    get: () => findLineIndex('DisableDropSound') !== -1,
+    set: (v) => {
+        if (v) {
+             if (findLineIndex('DisableDropSound') === -1) {
+                localBlock.value.lines.push({ key: 'DisableDropSound', values: [], raw: '' });
+            }
+        } else {
+            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== 'disabledropsound');
+        }
+    }
+});
 
 const disableDropSoundIfAlertSound = computed({
     get: () => findLineIndex('DisableDropSoundIfAlertSound') !== -1,
@@ -744,6 +761,10 @@ const updateColorFromHex = (key: string, hex: string) => {
     setLineValue(key, `${r} ${g} ${b}${alphaPart}`);
 };
 
+const onContextMenu = (event: MouseEvent) => {
+    emit('open-ctx-menu', event);
+};
+
 const toggleExpand = () => {
     isExpanded.value = !isExpanded.value;
     if (isExpanded.value) {
@@ -803,9 +824,9 @@ const removeLineAtIndex = (idx: number) => {
       </div>
       <div class="header-right">
          <select v-model="localBlock.type" class="glass-select small" @click.stop>
-            <option value="Show">Show</option>
-            <option value="Hide">Hide</option>
-            <option value="Minimal">Minimal</option>
+            <option value="Show">显示</option>
+            <option value="Hide">隐藏</option>
+            <option value="Minimal">最小化</option>
          </select>
          <div class="expand-icon">{{ isExpanded ? '▼' : '▶' }}</div>
       </div>
@@ -814,9 +835,11 @@ const removeLineAtIndex = (idx: number) => {
     <!-- Expanded Editor -->
     <div v-if="isExpanded" class="block-body">
          
-         <!-- Core Conditions (Most Important) -->
+         <!-- ================= COMMON RULES (Always Visible) ================= -->
+         
+         <!-- 1. Content: BaseType & ItemClass -->
          <div class="form-row full-width">
-            <label>Base Type (Item Name)</label>
+            <label>物品名称 (多个物品以英文逗号分隔) [BaseType]</label>
             <textarea 
                 ref="baseTypeInput"
                 v-model.lazy="baseTypes" 
@@ -829,12 +852,135 @@ const removeLineAtIndex = (idx: number) => {
          </div>
 
          <div class="form-row full-width">
-            <label>Item Class</label>
+            <label>物品分类 (可选) [Class]</label>
             <input v-model.lazy="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
          </div>
+         
+         <!-- 2. Metadata / Comments Description -->
+         <div class="form-grid">
+             <div class="form-group start-col-span-3">
+                 <label>额外注释与说明 (可选)</label>
+                 <textarea v-model="localBlock.rawHeader" class="glass-textarea small" rows="2" placeholder="# Comments..."></textarea>
+             </div>
+         </div>
 
-         <!-- Detailed Conditions -->
-         <div class="conditions-container">
+         <!-- 3. Appearance: Colors -->
+         <div class="form-grid">
+            <div class="form-group">
+                <label>文字颜色 [SetTextColor]</label>
+                <div class="color-input-group">
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
+                        <input type="color" :value="rgbStringToHex(textColor)" @input="e => updateColorFromHex('SetTextColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
+                    <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
+                </div>
+            </div>
+            <div class="form-group">
+                 <label>背景颜色 [SetBackgroundColor]</label>
+                 <div class="color-input-group">
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
+                        <input type="color" :value="rgbStringToHex(bgColor)" @input="e => updateColorFromHex('SetBackgroundColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
+                     <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
+                 </div>
+             </div>
+             <div class="form-group">
+                 <label>边框颜色 [SetBorderColor]</label>
+                 <div class="color-input-group">
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
+                        <input type="color" :value="rgbStringToHex(borderColor)" @input="e => updateColorFromHex('SetBorderColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
+                     <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
+                 </div>
+             </div>
+         </div>
+         
+         <!-- 4. Display: Font & Effects -->
+         <div class="form-grid four-col">
+             <div class="form-group">
+                 <label>字体大小 [SetFontSize]</label>
+                 <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
+             </div>
+             <div class="form-group start-col-span-3">
+                 <label>光柱颜色 [PlayEffect]</label>
+                 <div style="display: flex; gap: 8px; align-items: center;">
+                    <select v-model="playEffectColor" class="glass-select small" :style="{ width: '150px', color: effectColorMap[playEffectColor] || 'inherit' }">
+                        <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
+                        <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
+                    </select>
+                    <label class="bool-check" style="margin-bottom: 0;">
+                        <input type="checkbox" v-model="playEffectTemp" />
+                        只在掉落时显示光柱 [Temp]
+                    </label>
+                 </div>
+             </div>
+             
+             <!-- Minimap Icon -->
+             <div class="form-group full-width" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 4px;">
+                 <label style="margin-bottom: 8px;">小地图图标 [MinimapIcon]</label>
+                 <div style="display: flex; gap: 16px; align-items: center;">
+                     <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                        <input type="number" v-model.lazy="minimapIconSize" min="0" max="2" class="glass-input small" style="width: 100%; padding-right: 35px; text-align: center;" placeholder="0-2" />
+                        <span style="position: absolute; right: 8px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">大小</span>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">颜色:</span>
+                        <select v-model="minimapIconColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[minimapIconColor] || 'inherit' }">
+                            <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">形状:</span>
+                         <select v-model="minimapIconShape" class="glass-select small" style="flex: 1;">
+                            <option v-for="s in validShapes" :key="s" :value="s">{{ s }} {{ shapeIcons[s] }}</option>
+                        </select>
+                    </div>
+                 </div>
+             </div>
+
+             <!-- Sounds -->
+             <div class="form-group start-col-span-2" style="grid-column: 1 / span 2;">
+                 <label>掉落音效 [PlayAlertSound]</label>
+                 <div style="display: flex; gap: 4px; align-items: center;">
+                    <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
+                        <option value="">None</option>
+                        <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
+                    </select>
+                    <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                        <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
+                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
+                    </div>
+                </div>
+                <label class="bool-check" style="margin-top: 4px;">
+                    <input type="checkbox" v-model="disableDropSound" />
+                    <span>Disable Default Drop Sound [DisableDropSound]</span>
+                </label>
+             </div>
+             
+             <!-- Custom Sound -->
+             <div class="form-group full-width" style="grid-column: 1 / -1;">
+                 <label>自定义音效 [CustomAlertSound]</label>
+                 <div class="input-group">
+                    <input v-model="customAlertSound" class="glass-input small" placeholder='File "Vol"' />
+                    <button @click="browseSound" class="glass-button icon" title="Select File">📂</button>
+                 </div>
+             </div>
+         </div>
+         
+         <!-- ================= ADVANCED SECTION TOGGLE ================= -->
+         <div class="advanced-toggle" @click="toggleAdvanced">
+             <span>{{ showAdvanced ? '▼ 收起高级选项' : '▶ 展开高级选项 (Misc Attributes)' }}</span>
+             <div class="divider-line"></div>
+         </div>
+
+         <!-- ================= ADVANCED RULES (Collapsible) ================= -->
+         <div v-show="showAdvanced" class="conditions-container advanced-section">
+            
             <!-- 1. Requirements & General -->
             <div class="section-title">General Requirements</div>
             <div class="form-grid four-col">
@@ -863,6 +1009,7 @@ const removeLineAtIndex = (idx: number) => {
                         <option value=">= Rare">>= Rare</option>
                     </select>
                 </div>
+                <!-- StackSize, Width, Height -->
                 <div class="form-group">
                     <label>Stack Size</label>
                     <input v-model="stackSize" class="glass-input small" placeholder=">= 10" />
@@ -919,7 +1066,6 @@ const removeLineAtIndex = (idx: number) => {
                  </div>
                  <div class="form-group">
                      <label>Base Percentile</label>
-                     <!-- using baseDefencePct as defined in script -->
                      <input v-model="baseDefencePct" class="glass-input small" placeholder=">= 90" />
                  </div>
                  <div class="form-group">
@@ -928,7 +1074,7 @@ const removeLineAtIndex = (idx: number) => {
                  </div>
             </div>
 
-            <!-- 4. Influence, Enchant & Status -->
+             <!-- 4. Influence, Enchant & Status -->
             <div class="section-title">Enchants, Clusters & Eldritch</div>
             <div class="form-grid four-col">
                 <div class="form-group">
@@ -946,7 +1092,7 @@ const removeLineAtIndex = (idx: number) => {
                 
                 <!-- Cluster Jewels -->
                 <div class="form-group start-col-span-2">
-                    <label>Cluster Passive (Small Passives)</label>
+                    <label>Cluster Passive</label>
                     <input v-model.lazy="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
                 </div>
                 <div class="form-group">
@@ -1083,149 +1229,19 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                 <button @click="addCustomRule" class="glass-button small full-width dashed">+ Add Custom Rule</button>
             </div>
-         </div>
-
-         <!-- Metadata / Comments -->
-         <div class="form-grid">
-             <div class="form-group start-col-span-3">
-                 <label>Comment Header / Description</label>
-                 <textarea v-model="localBlock.rawHeader" class="glass-textarea small" rows="2" placeholder="# Comments..."></textarea>
+            
+            <!-- End of Advanced Section -->
+            <div class="section-title">Options</div>
+            <div class="form-row checkbox-row">
+                 <label class="checkbox-label">
+                     <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
+                     <span>Quiet if Alert</span>
+                 </label>
+                 <label class="checkbox-label">
+                     <input type="checkbox" v-model="shouldContinue" />
+                     <span>Continue (Match Next)</span>
+                 </label>
              </div>
-         </div>
-         
-         <!-- Classification (Comments) -->
-         <div class="form-grid">
-             <div class="form-group">
-                 <label>Category (Tag)</label>
-                 <input v-model="localBlock.category" class="glass-input small" placeholder="e.g. 基础" />
-             </div>
-             <div class="form-group">
-                 <label>Alias / Custom Name</label>
-                 <input v-model="localBlock.name" class="glass-input small" placeholder="e.g. 货币通货" />
-             </div>
-             <div class="form-group">
-                 <label>Priority (Tag)</label>
-                 <input v-model="localBlock.priority" class="glass-input small" placeholder="e.g. 1" />
-             </div>
-         </div>
-
-         <!-- Colors -->
-         <div class="form-grid">
-            <div class="form-group">
-                <label>文字颜色</label>
-                <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
-                        <input type="color" :value="rgbStringToHex(textColor)" @input="e => updateColorFromHex('SetTextColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
-                    </div>
-                    <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
-                </div>
-            </div>
-            <div class="form-group">
-                 <label>背景颜色</label>
-                 <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
-                        <input type="color" :value="rgbStringToHex(bgColor)" @input="e => updateColorFromHex('SetBackgroundColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
-                    </div>
-                     <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
-                 </div>
-             </div>
-             <div class="form-group">
-                 <label>边框颜色</label>
-                 <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
-                        <input type="color" :value="rgbStringToHex(borderColor)" @input="e => updateColorFromHex('SetBorderColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
-                    </div>
-                     <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
-                 </div>
-             </div>
-         </div>
-
-         <!-- Display & Sound -->
-         <div class="form-grid four-col">
-             <div class="form-group">
-                 <label>字体大小</label>
-                 <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
-             </div>
-             <div class="form-group start-col-span-3">
-                 <label>光柱颜色</label>
-                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <select v-model="playEffectColor" class="glass-select small" :style="{ width: '150px', color: effectColorMap[playEffectColor] || 'inherit' }">
-                        <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
-                        <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
-                    </select>
-                    <label class="bool-check" style="margin-bottom: 0;">
-                        <input type="checkbox" v-model="playEffectTemp" />
-                        只在掉落时显示光柱
-                    </label>
-                 </div>
-             </div>
-             
-             <!-- Minimap Icon - Full Row -->
-             <div class="form-group full-width" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 4px;">
-                 <label style="margin-bottom: 8px;">小地图图标</label>
-                 <div style="display: flex; gap: 16px; align-items: center;">
-                     
-                     <!-- Size -->
-                     <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
-                        <input type="number" v-model.lazy="minimapIconSize" min="0" max="2" class="glass-input small" style="width: 100%; padding-right: 35px; text-align: center;" placeholder="0-2" />
-                        <span style="position: absolute; right: 8px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">大小</span>
-                    </div>
-
-                    <!-- Color -->
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">颜色:</span>
-                        <select v-model="minimapIconColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[minimapIconColor] || 'inherit' }">
-                            <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
-                        </select>
-                    </div>
-
-                    <!-- Shape -->
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">形状:</span>
-                         <select v-model="minimapIconShape" class="glass-select small" style="flex: 1;">
-                            <option v-for="s in validShapes" :key="s" :value="s">{{ s }} {{ shapeIcons[s] }}</option>
-                        </select>
-                    </div>
-
-                 </div>
-             </div>
-
-             <div class="form-group start-col-span-2">
-                 <label>掉落音效</label>
-                 <div style="display: flex; gap: 4px; align-items: center;">
-                    <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
-                        <option value="">None</option>
-                        <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
-                    </select>
-                    <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
-                        <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
-                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
-                    </div>
-                 </div>
-             </div>
-             
-             <!-- Custom Sound -->
-             <div class="form-group full-width">
-                 <label>自定义音效</label>
-                 <div class="input-group">
-                    <input v-model="customAlertSound" class="glass-input small" placeholder='File "Vol"' />
-                    <button @click="browseSound" class="glass-button icon" title="Select File">📂</button>
-                 </div>
-             </div>
-         </div>
-         
-         <div class="form-row checkbox-row">
-             <label class="checkbox-label">
-                 <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
-                 <span>Quiet if Alert</span>
-             </label>
-             <label class="checkbox-label">
-                 <input type="checkbox" v-model="shouldContinue" />
-                 <span>Continue (Match Next)</span>
-             </label>
          </div>
     </div>
   </div>
@@ -1497,5 +1513,46 @@ label {
 .full-width.dashed:hover {
     opacity: 1;
     border-style: solid;
+}
+
+/* Advanced Section Toggle */
+.advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 12px 0;
+    color: #409eff;
+    font-size: 12px;
+    font-weight: bold;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.advanced-toggle:hover {
+    color: #66b1ff;
+}
+
+.advanced-toggle .divider-line {
+    flex: 1;
+    height: 1px;
+    background: rgba(64, 158, 255, 0.2);
+    transition: background 0.2s;
+}
+
+.advanced-toggle:hover .divider-line {
+    background: rgba(64, 158, 255, 0.5);
+}
+
+.advanced-section {
+    animation: fadeIn 0.3s ease-out;
+    padding-left: 4px;
+    border-left: 2px solid rgba(64, 158, 255, 0.1);
+    margin-left: 4px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 </style>

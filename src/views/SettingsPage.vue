@@ -183,6 +183,12 @@ const openContainingFolder = async () => {
   padding: 32px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  /* Force compositing and hint the browser to prepare backdrop-filter
+     to avoid a delayed first-frame rendering of the glass effect. */
+  will-change: backdrop-filter, transform;
+  transform: translateZ(0);
+  -webkit-transform: translate3d(0,0,0);
+  backface-visibility: hidden;
 }
 
 .glass-card:hover {

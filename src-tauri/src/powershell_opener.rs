@@ -22,9 +22,7 @@ pub fn open_folder(path: &str) -> Result<(), String> {
         let mut cmd = Command::new("powershell");
         cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command").arg(ps_cmd);
         // prevent flashing console window
-        unsafe {
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
         let status = cmd.spawn().map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?;
         if status.success() {
@@ -61,9 +59,7 @@ pub fn open_file(path: &str) -> Result<(), String> {
 
         let mut cmd = Command::new("powershell");
         cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command").arg(ps_cmd);
-        unsafe {
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
         let status = cmd.spawn().map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?;
         if status.success() {

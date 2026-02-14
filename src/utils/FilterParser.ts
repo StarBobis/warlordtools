@@ -9,6 +9,9 @@ export interface FilterBlock {
     id: string;
     type: string; // Show, Hide, Minimal, Continue
     
+    // Position info
+    startLine: number;
+
     // Structured Header Fields
     category?: string; // e.g. "基础"
     name?: string;     // e.g. "货币通货"
@@ -26,6 +29,7 @@ export class FilterParser {
         const lines = content.split(/\r?\n/);
         
         let currentHeaderLines: string[] = [];
+        let headerStartLine = -1;
         let currentBlock: FilterBlock | null = null;
         
         const blockStartKeywords = ['Show', 'Hide', 'Minimal', 'Continue'];
@@ -46,6 +50,10 @@ export class FilterParser {
                 // Indented comments are likely block-internal comments (e.g., specific rule explanations)
                 if (currentBlock && isIndented) {
                     continue; // Ignore internal comments for now to keep things clean
+                }
+                
+                if (headerStartLine === -1) {
+                    headerStartLine = i;
                 }
 
                 // Top-level comments are headers for the NEXT block
@@ -95,6 +103,7 @@ export class FilterParser {
                 currentBlock = {
                     id: crypto.randomUUID(),
                     type: firstToken,
+                    startLine: headerStartLine !== -1 ? headerStartLine : i,
                     category,
                     name,
                     priority,
@@ -103,6 +112,7 @@ export class FilterParser {
                 };
                 
                 currentHeaderLines = [];
+                headerStartLine = -1;
                 continue;
             }
 
@@ -137,8 +147,12 @@ export class FilterParser {
 
     static stringify(blocks: FilterBlock[]): string {
         let output = "";
+        let currentLine = 0;
 
         for (const block of blocks) {
+            // Update the block's start position to match the generated matches
+            block.startLine = currentLine;
+
             // Reconstruct Header
             if (block.name) {
                 let headerLine = "";
@@ -150,15 +164,21 @@ export class FilterParser {
                     // Fallback or simple header
                     headerLine = block.name;
                 }
-                output += `# ${headerLine}\n`;
+                const line = `# ${headerLine}\n`;
+                output += line;
+                currentLine += 1;
             } else if (block.rawHeader) {
                 // Fallback to raw if logic failed
                 const comments = block.rawHeader.split('\n');
-                comments.forEach(c => output += `# ${c}\n`);
+                comments.forEach(c => {
+                    output += `# ${c}\n`;
+                    currentLine += 1;
+                });
             }
             
             // Block Type
             output += `${block.type}\n`;
+            currentLine += 1;
 
             // Lines
             for (const line of block.lines) {
@@ -173,9 +193,11 @@ export class FilterParser {
                 }
 
                 output += `${lineStr}\n`;
+                currentLine += 1;
             }
             
             output += "\n";
+            currentLine += 1;
         }
 
         return output;

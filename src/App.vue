@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { configManager } from "./utils/ConfigManager";
 import TitleBar from "./components/TitleBar.vue";
 import FilterPage from "./views/FilterPage.vue";
 import MarketPage from "./views/MarketPage.vue";
+import WorkshopPage from "./views/WorkshopPage.vue";
+import PoedbPage from "./views/PoedbPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
 
 // State
@@ -13,7 +16,6 @@ const currentView = ref("filter");
 // Component Mapping
 const viewComponents: Record<string, any> = {
   filter: FilterPage,
-  market: MarketPage,
   settings: SettingsPage,
 };
 
@@ -54,6 +56,17 @@ onMounted(async () => {
       } catch (e) {
           console.error("Failed to save config on close", e);
       } finally {
+          // Close child windows first
+          const marketOverlay = await WebviewWindow.getByLabel('market-overlay');
+          if (marketOverlay) {
+              await marketOverlay.destroy();
+          }
+
+          const poedbOverlay = await WebviewWindow.getByLabel('poedb-overlay');
+          if (poedbOverlay) {
+              await poedbOverlay.destroy();
+          }
+          
           // Force close the window strictly after saving
           appWindow.destroy();
       }
@@ -76,8 +89,13 @@ onMounted(async () => {
       />
 
       <div class="content-area">
+        <MarketPage v-show="currentView === 'market'" :is-active="currentView === 'market'" class="persistent-view" />
+        <WorkshopPage v-show="currentView === 'workshop'" class="persistent-view" />
+        <PoedbPage v-show="currentView === 'poedb'" :is-active="currentView === 'poedb'" class="persistent-view" />
         <transition name="page-fade" mode="out-in">
-          <component :is="viewComponents[currentView]" :key="currentView" />
+          <keep-alive>
+              <component :is="viewComponents[currentView]" :key="currentView" />
+          </keep-alive>
         </transition>
       </div>
     </div>
@@ -140,10 +158,14 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background-image: url('/Background.png');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  /* Deep void base with subtle cold light emitting from center */
+  background-color: #050505;
+  background: radial-gradient(
+      ellipse at 50% 40%, 
+      #232838 0%,       /* Muted blue-grey core - subtle light */
+      #111216 40%,      /* Transition to dark slate */
+      #020202 100%      /* Pitch black edges */
+  );
   z-index: 0;
 }
 
@@ -154,8 +176,13 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  /* Radial gradient: Transparent center, Dark edges */
-  background: radial-gradient(circle at center, rgba(10,10,10,0.2) 20%, rgba(0,0,0,0.85) 100%);
+  /* Smooth vignette to focus attention inward */
+  background: radial-gradient(
+      circle at center, 
+      transparent 10%, 
+      rgba(0,0,0,0.4) 50%, 
+      rgba(0,0,0,0.95) 100%
+  );
   pointer-events: none;
   z-index: 1;
 }
@@ -190,22 +217,30 @@ body {
 /* Page fade + subtle vertical movement for view changes (short, snappy) */
 .page-fade-enter-active,
 .page-fade-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  /* Only animate transform to avoid opacity-related repaint that
+     conflicts with backdrop-filter (glass) rendering. Keep same
+     timing to preserve a snappy feel. */
+  transition: transform 180ms ease;
 }
 .page-fade-enter-from {
-  opacity: 0;
   transform: translateY(6px);
 }
 .page-fade-enter-to {
-  opacity: 1;
   transform: translateY(0);
 }
 .page-fade-leave-from {
-  opacity: 1;
   transform: translateY(0);
 }
 .page-fade-leave-to {
-  opacity: 0;
   transform: translateY(-6px);
+}
+
+.persistent-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
 }
 </style>

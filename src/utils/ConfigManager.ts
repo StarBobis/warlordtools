@@ -8,6 +8,10 @@ export interface AppSettings {
     y?: number;
     maximized: boolean;
     filterStoragePath?: string;
+    // last selected filter file path (persist UI state)
+    lastSelectedFilter?: string;
+    // Navigation items order
+    navOrder?: string[];
 }
 
 const CONFIG_DIR = 'WarlordToolsConfig';
@@ -18,7 +22,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     width: 1280,
     height: 720,
     maximized: false,
-    filterStoragePath: ''
+    filterStoragePath: '',
+    navOrder: ['filter', 'market', 'workshop', 'poedb']
 };
 
 class ConfigManager {

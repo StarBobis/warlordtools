@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onActivated, nextTick, reactive, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { configManager } from "../utils/ConfigManager";
 import { FilterParser, type FilterBlock } from '../utils/FilterParser';
@@ -10,13 +10,112 @@ interface FilterFile {
   path: string;
 }
 
+// Global View State Persistence (Session-based)
+// Maps filePath -> { expandedKey: string | null, scrollY: number }
+const globalViewState = reactive<Record<string, { expandedKey: string | null, scrollY: number }>>({});
+
 const filterFiles = ref<FilterFile[]>([]);
 const selectedFile = ref<FilterFile | null>(null);
 const parsedBlocks = ref<FilterBlock[]>([]);
+const focusedBlockId = ref<string | null>(null);
 const isLoading = ref(false);
 const saveStatus = ref<string>("");
 const currentViewMode = ref<'visual' | 'code'>('visual');
 const rawContent = ref<string>("");
+const visualListRef = ref<HTMLElement | null>(null);
+const searchQuery = ref("");
+
+const filteredBlocks = computed(() => {
+    if (!searchQuery.value) return parsedBlocks.value;
+    const lower = searchQuery.value.toLowerCase();
+    return parsedBlocks.value.filter(b => {
+        // Search in name, header
+        const headerMatch = (b.name || '').toLowerCase().includes(lower) || 
+                            (b.category || '').toLowerCase().includes(lower) ||
+                            (b.rawHeader || '').toLowerCase().includes(lower);
+                            
+        if (headerMatch) return true;
+
+        // Search in BaseType (and Class) content
+        // We look into lines where key is BaseType or Class
+        const contentMatch = b.lines.some(l => {
+            const k = l.key.toLowerCase();
+            if (k === 'basetype' || k === 'class') {
+                return l.values.some(v => {
+                    // Remove quotes for cleaner search matching
+                    const cleanVal = v.replace(/"/g, '').toLowerCase();
+                    return cleanVal.includes(lower);
+                });
+            }
+            return false;
+        });
+        
+        return contentMatch;
+    });
+});
+
+const getBlockKey = (block: FilterBlock) => {
+    return block.rawHeader?.trim() || `${block.type}-${block.category}-${block.name}`;
+};
+
+const isBlockExpanded = (block: FilterBlock) => {
+    if (!selectedFile.value) return false;
+    const path = selectedFile.value.path;
+    const state = globalViewState[path];
+    return state ? state.expandedKey === getBlockKey(block) : false;
+};
+
+const handleBlockToggle = async (block: FilterBlock, expanded: boolean) => {
+    if (!selectedFile.value) return;
+    const path = selectedFile.value.path;
+    
+    if (!globalViewState[path]) {
+        globalViewState[path] = { expandedKey: null, scrollY: 0 };
+    }
+    
+    const key = getBlockKey(block);
+    if (expanded) {
+        globalViewState[path].expandedKey = key;
+         // Also update focused block to this one if expanded
+        focusedBlockId.value = block.id;
+        
+        // Wait for DOM to update (collapse others, expand this one)
+        await nextTick();
+        
+        // Scroll the active block into view
+        const el = document.getElementById(`block-${block.id}`);
+        if (el) {
+            // "start" aligns the top of the element with the top of the container
+            // "nearest" is less intrusive if it's already in view
+            // Using "start" ensures user looks at the start of the rule they just opened
+            // plus a small delay to handle any layout thrashing if necessary
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    } else {
+        if (globalViewState[path].expandedKey === key) {
+             globalViewState[path].expandedKey = null;
+        }
+    }
+};
+
+const saveVisualScroll = () => {
+    if (selectedFile.value && visualListRef.value) {
+        const path = selectedFile.value.path;
+        if (!globalViewState[path]) {
+            globalViewState[path] = { expandedKey: null, scrollY: 0 };
+        }
+        globalViewState[path].scrollY = visualListRef.value.scrollTop;
+    }
+};
+
+const restoreVisualScroll = async () => {
+    if (selectedFile.value && globalViewState[selectedFile.value.path]) {
+        await nextTick();
+        if (visualListRef.value) {
+            visualListRef.value.scrollTop = globalViewState[selectedFile.value.path].scrollY;
+        }
+    }
+};
 
 const scanFilters = async () => {
   const settings = configManager.getSettings();
@@ -24,6 +123,7 @@ const scanFilters = async () => {
     alert("请先在设置中配置过滤器存储路径");
     return;
   }
+
 
   isLoading.value = true;
   try {
@@ -38,6 +138,16 @@ const scanFilters = async () => {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
       
+    // If there is a remembered selection, try to restore it
+    const settingsAfter = configManager.getSettings();
+    if (settingsAfter.lastSelectedFilter) {
+      const match = filterFiles.value.find(f => f.path === settingsAfter.lastSelectedFilter);
+      if (match) {
+        // restore selection but do not re-save setting
+        await selectFile(match);
+      }
+    }
+      
   } catch (error) {
     console.error("Failed to scan filters:", error);
     alert(`扫描失败: ${error}`);
@@ -47,7 +157,14 @@ const scanFilters = async () => {
 };
 
 const selectFile = async (file: FilterFile) => {
+  if (selectedFile.value && currentViewMode.value === 'visual') {
+      saveVisualScroll();
+  }
+  
   selectedFile.value = file;
+  searchQuery.value = ""; // Reset search on file change
+  // persist the last selected file
+  await configManager.saveSettings({ lastSelectedFilter: file.path });
   isLoading.value = true;
   saveStatus.value = "";
   parsedBlocks.value = [];
@@ -58,6 +175,15 @@ const selectFile = async (file: FilterFile) => {
     rawContent.value = content;
     // Parse immediately
     parsedBlocks.value = FilterParser.parse(content);
+    
+    // Auto-restore view state
+    if (globalViewState[file.path]) {
+        // Blocks expansion restored effectively by isBlockExpanded computed logic in template
+        if (currentViewMode.value === 'visual') {
+            await restoreVisualScroll();
+        }
+    }
+    
   } catch (error) {
     console.error("Failed to read file:", error);
     alert(`读取失败: ${error}`);
@@ -72,6 +198,7 @@ const saveFile = async () => {
   try {
     let contentToSave = "";
     if (currentViewMode.value === 'visual') {
+        saveVisualScroll();
         // Regenerate from blocks
         contentToSave = FilterParser.stringify(parsedBlocks.value);
         // Sync back to raw for consistency if we switch tabs
@@ -97,17 +224,98 @@ const saveFile = async () => {
   }
 };
 
-const switchMode = (mode: 'visual' | 'code') => {
-    if (mode === currentViewMode.value) return;
+const openContainingFolder = async () => {
+  if (!selectedFile.value) return;
+  try {
+    // get directory by stripping last segment
+    const dir = selectedFile.value.path.replace(/[/\\][^/\\]+$/, '');
+    await invoke('open_folder_cmd', { path: dir });
+  } catch (e) {
+    console.error('Failed to open containing folder', e);
+    alert(`打开失败: ${e}`);
+  }
+};
+
+const codeEditor = ref<HTMLTextAreaElement | null>(null);
+
+const switchMode = async (mode: 'visual' | 'code') => {
+  if (mode === currentViewMode.value) return;
+  
+  // Save current state before switching
+  if (currentViewMode.value === 'visual') {
+      saveVisualScroll();
+  }
     
-    if (mode === 'visual') {
-        // Switching to visual: Parse current raw text
-        parsedBlocks.value = FilterParser.parse(rawContent.value);
-    } else {
-        // Switching to code: Stringify current blocks
-        rawContent.value = FilterParser.stringify(parsedBlocks.value);
-    }
-    currentViewMode.value = mode;
+  if (mode === 'visual') {
+    // Switching to visual: Parse current raw text
+    parsedBlocks.value = FilterParser.parse(rawContent.value);
+    await restoreVisualScroll();
+  } else {
+    // Switching to code: Stringify current blocks
+    rawContent.value = FilterParser.stringify(parsedBlocks.value);
+    
+    // Using setTimeout instead of nextTick due to potential layout thrashing/delays in rendering large textareas
+    setTimeout(() => {
+        try {
+            const textarea = codeEditor.value;
+            // Focus on the block that is currently expanded (or focused)
+            let targetBlockId = focusedBlockId.value;
+            
+            // If we have an expanded key, prefer that block
+            if (selectedFile.value && globalViewState[selectedFile.value.path]?.expandedKey) {
+                const key = globalViewState[selectedFile.value.path].expandedKey;
+                const block = parsedBlocks.value.find(b => getBlockKey(b) === key);
+                // Only override if found
+                if (block) targetBlockId = block.id;
+            }
+
+            if (textarea && targetBlockId) {
+                const block = parsedBlocks.value.find(b => b.id === targetBlockId);
+                
+                if (block && typeof block.startLine === 'number') {
+                    
+                    let lineIndex = block.startLine;
+
+                    // Refinement: Try to find 'BaseType' within the next few lines
+                    // to land exactly on the content rather than the header
+                    const lines = rawContent.value.split('\n');
+                    const limit = Math.min(lines.length, lineIndex + 15);
+                    for(let i = lineIndex; i < limit; i++) {
+                        if (lines[i].trim().startsWith('BaseType')) {
+                            lineIndex = i;
+                            break;
+                        }
+                    }
+
+                    // Calculate character offset manually
+                    // We generated the string with '\n', so +1 per line is correct
+                    let charIndex = 0;
+                    for(let i=0; i < lineIndex; i++) {
+                        if (i < lines.length) {
+                            charIndex += lines[i].length + 1; 
+                        }
+                    }
+                    
+                    textarea.focus();
+                    textarea.setSelectionRange(charIndex, charIndex);
+                    
+                    // Scroll logic based on lines
+                    const totalLines = lines.length;
+                    const ratio = lineIndex / Math.max(1, totalLines);
+                    
+                    // Calculate target pixel position
+                    // Improve accuracy by centering the target line
+                    const targetScroll = (textarea.scrollHeight * ratio) - (textarea.clientHeight / 2);
+                    
+                    textarea.scrollTop = Math.max(0, targetScroll);
+                }
+            }
+        } catch (e) {
+            console.warn('Auto-scroll to block failed', e);
+        }
+    }, 100);
+  }
+  currentViewMode.value = mode;
 }
 
 const addNewBlock = () => {
@@ -117,15 +325,72 @@ const addNewBlock = () => {
         name: 'New Rule',
         category: 'Custom',
         priority: 'Normal',
+        startLine: 0, // Default to top, will be recalculated on save/view switch
         rawHeader: 'Custom - New Rule - Normal',
         lines: []
     });
 };
 
-onMounted(() => {
-    const settings = configManager.getSettings();
-    if(settings.filterStoragePath) {
-        scanFilters();
+// Context Menu Logic
+const contextMenu = reactive<{
+    visible: boolean;
+    x: number;
+    y: number;
+    targetBlockId: string | null;
+}>({
+    visible: false,
+    x: 0,
+    y: 0,
+    targetBlockId: null
+});
+
+const onBlockContextMenu = (event: MouseEvent, blockId: string) => {
+    // Prevent default browser menu
+    // (Handled by .prevent in child, but good to ensure logic here)
+    
+    contextMenu.x = event.clientX;
+    contextMenu.y = event.clientY;
+    contextMenu.targetBlockId = blockId;
+    contextMenu.visible = true;
+    
+    // Close on next interaction
+    const closeMenu = () => {
+        contextMenu.visible = false;
+        window.removeEventListener('click', closeMenu);
+        window.removeEventListener('contextmenu', closeMenu); // Close if another right click happens
+    };
+    
+    // Delay adding listeners to strictly avoid current event triggering close
+    requestAnimationFrame(() => {
+        window.addEventListener('click', closeMenu);
+    });
+};
+
+const deleteTargetBlock = () => {
+    if (contextMenu.targetBlockId) {
+        const idx = parsedBlocks.value.findIndex(b => b.id === contextMenu.targetBlockId);
+        if (idx !== -1) {
+            parsedBlocks.value.splice(idx, 1);
+        }
+    }
+    contextMenu.visible = false;
+};
+
+const initAndScan = async () => {
+  await configManager.init();
+  const settings = configManager.getSettings();
+  if(settings.filterStoragePath) {
+    await scanFilters();
+  }
+};
+
+onMounted(async () => {
+  await initAndScan();
+});
+
+onActivated(async () => {
+    if (filterFiles.value.length === 0) {
+        await initAndScan();
     }
 });
 </script>
@@ -171,34 +436,49 @@ onMounted(() => {
            </div>
            
            <div class="right-tools">
+               <input v-if="currentViewMode === 'visual'" v-model="searchQuery" class="glass-input search-box" placeholder="🔍 搜索规则..." />
                <span class="save-status">{{ saveStatus }}</span>
                <button v-if="currentViewMode === 'visual'" class="glass-button" @click="addNewBlock">+ 添加规则</button>
+               <button class="glass-button" @click="openContainingFolder">打开所在文件夹</button>
                <button class="glass-button primary" @click="saveFile">保存文件</button>
            </div>
       </div>
 
       <!-- VISUAL EDITOR -->
-      <div v-show="currentViewMode === 'visual'" class="visual-editor-container">
+      <div v-show="currentViewMode === 'visual'" class="visual-editor-container" ref="visualListRef" @scroll="saveVisualScroll">
           <div class="blocks-list">
               <FilterRuleEditor 
-                v-for="(block, index) in parsedBlocks" 
+                v-for="block in filteredBlocks" 
                 :key="block.id"
+                :id="'block-' + block.id"
                 :block="block"
-                @delete="parsedBlocks.splice(index, 1)"
+                :expanded="isBlockExpanded(block)"
+                @update:expanded="(val) => handleBlockToggle(block, val)"
+                @open-ctx-menu="(e) => onBlockContextMenu(e, block.id)"
+                @focus="focusedBlockId = block.id"
               />
-              <div v-if="parsedBlocks.length === 0" class="empty-blocks">
-                  没有找到规则，或解析失败。请尝试切换到代码模式查看。
+              <div v-if="filteredBlocks.length === 0" class="empty-blocks">
+                  {{ searchQuery ? '未找到匹配规则' : '没有找到规则，或解析失败。请尝试切换到代码模式查看。' }}
               </div>
           </div>
       </div>
 
-      <!-- CODE EDITOR -->
-      <textarea 
+        <!-- CODE EDITOR -->
+        <textarea 
+          ref="codeEditor"
           v-show="currentViewMode === 'code'"
           v-model="rawContent" 
           class="code-editor" 
           spellcheck="false"
-      ></textarea>
+        ></textarea>
+     
+     <!-- Custom Context Menu -->
+     <div v-if="contextMenu.visible" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+        <div class="context-menu-item danger" @click.stop="deleteTargetBlock">
+            <span>🗑️ 删除规则 (Delete)</span>
+        </div>
+     </div>
+
     </div>
 
     <div v-else class="welcome-state glass-panel main-content">
@@ -305,6 +585,45 @@ onMounted(() => {
 .glass-button:hover { background: rgba(255, 255, 255, 0.2); }
 .glass-button.primary { background: rgba(64, 158, 255, 0.4); border-color: rgba(64, 158, 255, 0.6); }
 
+.search-box {
+    width: 200px;
+    padding: 4px 8px;
+    font-size: 13px;
+    height: 28px;
+    box-sizing: border-box;
+}
+
 .save-status { color: #67c23a; font-size: 12px; }
 .welcome-state { align-items: center; justify-content: center; color: #666; }
+
+.context-menu {
+    position: fixed;
+    background: #252526;
+    border: 1px solid #454545;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    border-radius: 4px;
+    z-index: 9999;
+    min-width: 140px;
+    padding: 4px 0;
+}
+
+.context-menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #eee;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.1s;
+}
+
+.context-menu-item:hover {
+    background: #37373d;
+}
+
+.context-menu-item.danger {
+    color: #f56c6c;
+}
+.context-menu-item.danger:hover {
+    background: rgba(245, 108, 108, 0.1);
+}
 </style>

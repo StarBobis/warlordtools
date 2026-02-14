@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { FilterBlock, FilterLine } from '../utils/FilterParser';
 
 const props = defineProps<{
   block: FilterBlock;
+  expanded?: boolean;
 }>();
 
 const emit = defineEmits<{
-  (e: 'delete'): void;
+    (e: 'delete'): void;
+    (e: 'focus', id: string): void;
+    (e: 'update:expanded', val: boolean): void;
+    (e: 'open-ctx-menu', event: MouseEvent): void;
 }>();
 
-const isExpanded = ref(false);
+const isExpanded = computed({
+  get: () => props.expanded || false,
+  set: (val) => emit('update:expanded', val)
+});
+
+const onContextMenu = (event: MouseEvent) => {
+    emit('open-ctx-menu', event);
+};
 
 const localBlock = ref<FilterBlock>(props.block);
 
@@ -123,6 +134,31 @@ const baseTypes = computed({
           });
       }
   }
+});
+
+const baseTypeInput = ref<HTMLTextAreaElement | null>(null);
+
+const adjustTextareaHeight = () => {
+    const el = baseTypeInput.value;
+    if (el) {
+        el.style.height = 'auto'; // Shrink to fit content first
+        el.style.height = (el.scrollHeight + 2) + 'px'; // Expand to needed height
+    }
+};
+
+watch(baseTypes, () => {
+    nextTick(adjustTextareaHeight);
+});
+
+watch(isExpanded, (val) => {
+    if(val) {
+        // Need a slight delay or nextTick for v-if to render the element
+        nextTick(() => {
+            adjustTextareaHeight();
+        });
+        // Extra safety delay for transitions
+        setTimeout(adjustTextareaHeight, 100);
+    }
 });
 
 
@@ -443,7 +479,45 @@ const toCssColor = (str: string) => {
     return 'transparent';
 };
 
-const toggleExpand = () => isExpanded.value = !isExpanded.value;
+const rgbStringToHex = (str: string): string => {
+    if (!str) return '#000000';
+    const parts = str.split(' ').map(n => parseInt(n));
+    // Default to black if invalid
+    if (parts.length < 3) return '#000000';
+    
+    const toHex = (n: number) => {
+        const hex = Math.max(0, Math.min(255, isNaN(n) ? 0 : n)).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+    };
+    return `#${toHex(parts[0])}${toHex(parts[1])}${toHex(parts[2])}`;
+};
+
+const updateColorFromHex = (key: string, hex: string) => {
+    // hex is #RRGGBB
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    
+    // Get existing value to preserve alpha
+    const currentStr = getLineValue(key);
+    let alphaPart = '';
+    if (currentStr) {
+        const parts = currentStr.trim().split(/\s+/);
+        if (parts.length >= 4) {
+             alphaPart = ' ' + parts[3];
+        }
+    }
+    
+    setLineValue(key, `${r} ${g} ${b}${alphaPart}`);
+};
+
+const toggleExpand = () => {
+    isExpanded.value = !isExpanded.value;
+    if (isExpanded.value) {
+        // Notify parent that this block was expanded/focused
+        emit('focus', localBlock.value.id);
+    }
+};
 
 // Known Keys to exclude from Custom Rules list
 const knownKeys = new Set([
@@ -482,7 +556,7 @@ const removeLineAtIndex = (idx: number) => {
 <template>
   <div class="filter-block-card" :class="{ expanded: isExpanded }">
     <!-- Header Summary -->
-    <div class="block-header" @click="toggleExpand">
+    <div class="block-header" @click="toggleExpand" @contextmenu.prevent="onContextMenu">
       <div class="header-left">
         <div class="status-indicator" :class="localBlock.type.toLowerCase()"></div>
         <div class="header-info">
@@ -495,7 +569,6 @@ const removeLineAtIndex = (idx: number) => {
         </div>
       </div>
       <div class="header-right">
-         <button @click.stop="emit('delete')" class="glass-button icon danger" title="Delete Rule">❌</button>
          <select v-model="localBlock.type" class="glass-select small" @click.stop>
             <option value="Show">Show</option>
             <option value="Hide">Hide</option>
@@ -512,10 +585,13 @@ const removeLineAtIndex = (idx: number) => {
          <div class="form-row full-width">
             <label>Base Type (Item Name)</label>
             <textarea 
+                ref="baseTypeInput"
                 v-model="baseTypes" 
                 class="glass-textarea" 
-                rows="2"
+                rows="1"
                 placeholder='e.g. "Divine Orb", "Chaos Orb"'
+                @input="adjustTextareaHeight"
+                @focus="adjustTextareaHeight"
              ></textarea>
          </div>
 
@@ -805,21 +881,30 @@ const removeLineAtIndex = (idx: number) => {
             <div class="form-group">
                 <label>Text Color</label>
                 <div class="color-input-group">
-                    <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
+                        <input type="color" :value="rgbStringToHex(textColor)" @input="e => updateColorFromHex('SetTextColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
                     <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
                 </div>
             </div>
             <div class="form-group">
                  <label>Background</label>
                  <div class="color-input-group">
-                     <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
+                        <input type="color" :value="rgbStringToHex(bgColor)" @input="e => updateColorFromHex('SetBackgroundColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
                      <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
                  </div>
              </div>
              <div class="form-group">
                  <label>Border</label>
                  <div class="color-input-group">
-                     <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
+                    <div class="color-picker-wrapper">
+                        <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
+                        <input type="color" :value="rgbStringToHex(borderColor)" @input="e => updateColorFromHex('SetBorderColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                    </div>
                      <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
                  </div>
              </div>
@@ -978,6 +1063,26 @@ label {
     height: 24px;
     border-radius: 4px;
     border: 1px solid #444;
+}
+
+.color-picker-wrapper {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.hidden-color-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    margin: 0;
 }
 
 /* Glass Inputs */

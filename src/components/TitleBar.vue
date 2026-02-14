@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { configManager } from '../utils/ConfigManager';
 
-const { currentView } = defineProps<{
+const props = defineProps<{
   currentView: string;
 }>();
 
@@ -10,10 +11,144 @@ const emit = defineEmits<{
   (e: 'update:currentView', view: string): void;
 }>();
 
+// Navigation Items Configuration
+const navLabels: Record<string, string> = {
+    filter: '过滤器本地修改',
+    market: '市集',
+    workshop: '白菜工坊',
+    poedb: 'POE2DB'
+};
+const navItems = ref<string[]>([]);
+const navContainerRef = ref<HTMLElement | null>(null);
+
+// Drag State
+const isDragging = ref(false);
+const draggingItem = ref<string | null>(null);
+const ghostPos = ref({ x: 0, y: 0 });
+let dragStartTimer: number | null = null;
+const dragStartDelay = 220; // ms long-press threshold to start reordering
+
+// Initialize Order
+const initNavOrder = async () => {
+    // Ensure config is ready
+    await configManager.init();
+    const settings = configManager.getSettings();
+    if (settings.navOrder && settings.navOrder.length > 0) {
+        // Filter out any IDs that might not exist in our label map anymore
+        navItems.value = settings.navOrder.filter(id => navLabels[id]);
+        
+        // Add any missing new items to the end
+        const currentKeys = Object.keys(navLabels);
+        for (const key of currentKeys) {
+            if (!navItems.value.includes(key)) {
+                navItems.value.push(key);
+            }
+        }
+    } else {
+        // Default order
+         navItems.value = ['filter', 'market', 'workshop', 'poedb'];
+    }
+};
+
+onMounted(() => {
+    initNavOrder();
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('mousemove', handleGlobalMouseMove);
+    window.removeEventListener('mouseup', handleGlobalMouseUp);
+});
+
+
+// Drag Handling
+const cancelDragTimer = () => {
+  if (dragStartTimer !== null) {
+    clearTimeout(dragStartTimer);
+    dragStartTimer = null;
+  }
+};
+
+const handleMouseDown = (e: MouseEvent, item: string) => {
+  // Only left click
+  if (e.button !== 0) return;
+
+  // Track current mouse position for the ghost even before drag starts
+  ghostPos.value = { x: e.clientX, y: e.clientY };
+
+  cancelDragTimer();
+  dragStartTimer = window.setTimeout(() => {
+    isDragging.value = true;
+    draggingItem.value = item;
+  }, dragStartDelay);
+
+  // Prevent text selection on long press
+  e.preventDefault();
+};
+
+const handleGlobalMouseMove = (e: MouseEvent) => {
+  // Keep ghost position updated so the ghost appears where the cursor is when drag starts
+  ghostPos.value = { x: e.clientX, y: e.clientY };
+
+  if (!isDragging.value || !draggingItem.value || !navContainerRef.value) return;
+
+    ghostPos.value = { x: e.clientX, y: e.clientY };
+    
+    // Hit testing
+    // We get all tab elements in the container
+    const children = Array.from(navContainerRef.value.children) as HTMLElement[];
+    const draggedIndex = navItems.value.indexOf(draggingItem.value);
+    
+    // Find which item we are hovering over
+    // Simple heuristic: Mouse X is within the bounding box of a tab
+    // We map mouse X to an index
+    
+    let targetIndex = -1;
+    
+    for (let i = 0; i < children.length; i++) {
+        const el = children[i];
+        // Skip the ghost if it's in the DOM (it won't be in navItems, but check anyway)
+        const rect = el.getBoundingClientRect();
+        
+        // Logic: specific "Swap" threshold
+        // If we move mouse past the center of the neighbor, swap.
+        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+            targetIndex = i;
+            break;
+        }
+    }
+    
+    if (targetIndex !== -1 && targetIndex !== draggedIndex) {
+        // Perform Swap
+        const newItems = [...navItems.value];
+        const item = newItems[draggedIndex];
+        newItems.splice(draggedIndex, 1);
+        newItems.splice(targetIndex, 0, item);
+        navItems.value = newItems;
+        // Don't save yet, wait for mouse up
+    }
+};
+
+const handleGlobalMouseUp = async () => {
+  cancelDragTimer();
+
+  if (isDragging.value) {
+    isDragging.value = false;
+    draggingItem.value = null;
+        
+    // Persist
+    await configManager.saveSettings({ navOrder: navItems.value });
+  } else {
+    draggingItem.value = null;
+  }
+};
+
+// --- Existing Logic ---
 // track last non-settings view so we can toggle back
-const lastNonSettings = ref<string>(currentView as string);
+const lastNonSettings = ref<string>(props.currentView as string);
 watch(
-  () => currentView,
+  () => props.currentView,
   (val) => {
     if (val !== 'settings') lastNonSettings.value = val;
   }
@@ -39,7 +174,7 @@ const closeWindow = async () => {
 };
 
 const onSettingsClick = () => {
-  if (currentView === 'settings') {
+  if (props.currentView === 'settings') {
     emit('update:currentView', lastNonSettings.value || 'filter');
   } else {
     emit('update:currentView', 'settings');
@@ -49,15 +184,23 @@ const onSettingsClick = () => {
 
 <template>
   <div class="title-bar-container">
-    <div class="nav-section">
-      <div class="nav-tab" :class="{ active: currentView === 'filter' }" @click="emit('update:currentView', 'filter')">
-        <span>过滤器</span>
+    <div class="nav-section" ref="navContainerRef">
+      <div 
+        v-for="item in navItems" 
+        :key="item"
+        class="nav-tab" 
+        :class="{ active: currentView === item, 'is-dragging': draggingItem === item }" 
+        @mousedown="handleMouseDown($event, item)"
+        @click="!isDragging && emit('update:currentView', item)"
+      >
+        <span>{{ navLabels[item] }}</span>
         <div class="tab-indicator"></div>
       </div>
-      <div class="nav-tab" :class="{ active: currentView === 'market' }" @click="emit('update:currentView', 'market')">
-        <span>市集</span>
-        <div class="tab-indicator"></div>
-      </div>
+    </div>
+    
+    <!-- Ghost Element for visual feedback (follows mouse) -->
+    <div v-if="isDragging && draggingItem" class="ghost-tab" :style="{ left: ghostPos.x + 'px', top: ghostPos.y + 'px' }">
+        {{ navLabels[draggingItem] }}
     </div>
 
     <div class="controls-section">
@@ -128,6 +271,29 @@ const onSettingsClick = () => {
 .nav-tab.active {
   color: #ffffff;
   font-weight: bold;
+}
+
+.nav-tab.is-dragging {
+    opacity: 0.3; /* Dim the original placeholder */
+    background: rgba(255,255,255,0.05); /* Show slot clearly */
+}
+
+/* Ghost Tab Floating */
+.ghost-tab {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    background: rgba(40, 44, 52, 0.9);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    padding: 6px 14px;
+    font-size: 14px;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    transform: translate(-50%, -50%); /* Center on mouse cursor */
+    white-space: nowrap;
+    backdrop-filter: blur(4px);
+    font-weight: bold;
 }
 
 .tab-indicator {

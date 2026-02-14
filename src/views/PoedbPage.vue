@@ -9,27 +9,27 @@ const props = defineProps<{
 const containerRef = ref<HTMLElement | null>(null);
 
 useOverlayWindow({
-  label: 'market-overlay',
-  url: 'https://poe.game.qq.com/trade2/',
+  label: 'poedb-overlay',
+  url: 'https://poe2db.tw/cn/',
   containerRef,
   isActive: computed(() => props.isActive)
 });
 </script>
 
 <template>
-  <div class="market-page glass-panel" ref="containerRef">
+  <div class="poedb-page glass-panel" ref="containerRef">
      <div class="placeholder">
-        <p>市集窗口已嵌入显示区域</p>
+        <p>POEDB 窗口已嵌入显示区域</p>
         <p class="sub">若位置偏移，请拖动主窗口校准</p>
      </div>
   </div>
 </template>
 
 <style scoped>
-.market-page {
+.poedb-page {
   height: 100%;
   width: 100%;
-  background: rgba(0,0,0,0.5); /* Dark placeholder background */
+  background: rgba(0,0,0,0.5);
   display: flex;
   align-items: center;
   justify-content: center;

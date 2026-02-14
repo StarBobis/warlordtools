@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::fs;
+use tauri::Manager;
 pub mod powershell_opener;
 pub use powershell_opener::{open_file, open_folder};
 
@@ -66,6 +67,37 @@ fn write_file_content(path: String, content: String) -> Result<(), String> {
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn create_overlay_window(app: tauri::AppHandle, label: String, target_url: String) -> Result<(), String> {
+    if app.get_webview_window(&label).is_some() {
+        return Ok(());
+    }
+
+    let script = r#"
+      console.log("Blocking NitroAds");
+      try {
+          window.NitroAds = new Proxy({}, {
+            get: () => () => ({ then: (cb) => cb?.() }),
+            set: () => true
+          });
+          Object.freeze(window.NitroAds);
+      } catch(e) {}
+    "#;
+
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url.parse().map_err(|e: url::ParseError| e.to_string())?))
+        .title("Overlay")
+        .decorations(false)
+        .transparent(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .inner_size(800.0, 600.0)
+        .initialization_script(script)
+        .build()
+        .map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -78,7 +110,8 @@ pub fn run() {
             read_file_content,
             write_file_content,
             open_folder_cmd,
-            open_file_cmd
+            open_file_cmd,
+            create_overlay_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

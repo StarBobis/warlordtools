@@ -70,7 +70,8 @@ const setLineValue = (key: string, val: string, needsQuotes = false) => {
   } else {
       // Logic for numeric/simple values (Colors, Sounds)
       // Remove commands/separators
-      values = val.replace(/,/g, ' ').split(/\s+/).filter(v => v);
+      // Use split(' ') to allow typing spaces without them being eaten
+      values = val.replace(/,/g, ' ').split(' ');
   }
 
   const existingIndex = findLineIndex(key);
@@ -302,7 +303,8 @@ const createNumericComputed = (key: string) => computed({
             valueStr = parts[2];
         }
 
-        const values = valueStr.split(/\s+/).filter(Boolean);
+        // Use simple split to preserve spaces while typing
+        const values = valueStr.split(' ');
         
         // Update or Add
         const idx = findLineIndex(key);
@@ -454,10 +456,62 @@ const borderColor = computed({
     get: () => getLineValue('SetBorderColor'), 
     set: (v) => setLineValue('SetBorderColor', v) 
 });
-const playEffect = computed({ 
-    get: () => getLineValue('PlayEffect'), 
-    set: (v) => setLineValue('PlayEffect', v) 
+
+const validEffectColors = ['Red', 'Green', 'Blue', 'Brown', 'White', 'Yellow', 'Cyan', 'Grey', 'Orange', 'Pink', 'Purple'];
+
+const effectColorMap: Record<string, string> = {
+    'Red': '#ff4d4f',
+    'Green': '#95de64',
+    'Blue': '#69c0ff',
+    'Brown': '#d4b106',
+    'White': '#ffffff',
+    'Yellow': '#fadb14',
+    'Cyan': '#5cdbd3',
+    'Grey': '#bfbfbf',
+    'Orange': '#ffc069',
+    'Pink': '#ff85c0',
+    'Purple': '#b37feb'
+};
+
+const playEffectColor = computed({ 
+    get: () => {
+        const val = getLineValue('PlayEffect') || '';
+        const parts = val.split(' ');
+        // Check for any valid color in the string
+        return validEffectColors.find(c => parts.includes(c)) || '';
+    }, 
+    set: (v) => {
+        const current = getLineValue('PlayEffect') || '';
+        const isTemp = current.includes('Temp');
+        if (!v) {
+            // If color is cleared, remove the entries line
+            setLineValue('PlayEffect', '');
+        } else {
+            setLineValue('PlayEffect', `${v}${isTemp ? ' Temp' : ''}`);
+        }
+    } 
 });
+
+const playEffectTemp = computed({
+    get: () => {
+        const val = getLineValue('PlayEffect') || '';
+        return val.includes('Temp');
+    },
+    set: (isTemp) => {
+        const current = getLineValue('PlayEffect') || '';
+        const parts = current.split(' ');
+        const color = validEffectColors.find(c => parts.includes(c));
+        
+        if (color) {
+             setLineValue('PlayEffect', `${color}${isTemp ? ' Temp' : ''}`);
+        } else if (isTemp) {
+            // User checked Temp but no color selected. Default to White?
+            // Or just set "White Temp"?
+            setLineValue('PlayEffect', `White Temp`);
+        }
+    }
+});
+
 const fontSize = computed({
     get: () => getLineValue('SetFontSize'), 
     set: (v) => setLineValue('SetFontSize', v) 
@@ -586,7 +640,7 @@ const removeLineAtIndex = (idx: number) => {
             <label>Base Type (Item Name)</label>
             <textarea 
                 ref="baseTypeInput"
-                v-model="baseTypes" 
+                v-model.lazy="baseTypes" 
                 class="glass-textarea" 
                 rows="1"
                 placeholder='e.g. "Divine Orb", "Chaos Orb"'
@@ -597,7 +651,7 @@ const removeLineAtIndex = (idx: number) => {
 
          <div class="form-row full-width">
             <label>Item Class</label>
-            <input v-model="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
+            <input v-model.lazy="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
          </div>
 
          <!-- Detailed Conditions -->
@@ -708,13 +762,13 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                  <div class="form-group start-col-span-2">
                     <label>Enchant Name</label>
-                    <input v-model="hasEnchantment" class="glass-input small" placeholder='Name / "Tier"' />
+                    <input v-model.lazy="hasEnchantment" class="glass-input small" placeholder='Name / "Tier"' />
                 </div>
                 
                 <!-- Cluster Jewels -->
                 <div class="form-group start-col-span-2">
                     <label>Cluster Passive (Small Passives)</label>
-                    <input v-model="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
+                    <input v-model.lazy="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
                 </div>
                 <div class="form-group">
                     <label>Cluster Count</label>
@@ -763,7 +817,7 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                  <div class="form-group">
                      <label>Explicit Mods</label>
-                     <input v-model="hasExplicitMod" class="glass-input small" placeholder='>= 1 "Mod Name"' />
+                     <input v-model.lazy="hasExplicitMod" class="glass-input small" placeholder='>= 1 "Mod Name"' />
                  </div>
                  <div class="form-group">
                      <label>Corrupted Mods</label>
@@ -788,7 +842,7 @@ const removeLineAtIndex = (idx: number) => {
                  </div>
                   <div class="form-group">
                      <label>Transfigured</label>
-                     <input v-model="transfiguredGem" class="glass-input small" placeholder="True / Name" />
+                     <input v-model.lazy="transfiguredGem" class="glass-input small" placeholder="True / Name" />
                  </div>
             </div>
             <div class="form-row checkbox-row">
@@ -811,7 +865,7 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                  <div class="form-group">
                     <label>Archnemesis Mod</label>
-                    <input v-model="archnemesisMod" class="glass-input small" placeholder='Name' />
+                    <input v-model.lazy="archnemesisMod" class="glass-input small" placeholder='Name' />
                 </div>
                  <div class="form-group">
                     <label>Scourge Tier</label>
@@ -918,7 +972,16 @@ const removeLineAtIndex = (idx: number) => {
              </div>
              <div class="form-group">
                  <label>Play Effect</label>
-                 <input v-model="playEffect" class="glass-input small" placeholder="Color [Temp]" />
+                 <div style="display: flex; gap: 8px; align-items: center;">
+                    <select v-model="playEffectColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[playEffectColor] || 'inherit' }">
+                        <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
+                        <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
+                    </select>
+                    <label class="bool-check" style="margin-bottom: 0;">
+                        <input type="checkbox" v-model="playEffectTemp" />
+                        Temp
+                    </label>
+                 </div>
              </div>
              <div class="form-group">
                  <label>Minimap Icon</label>

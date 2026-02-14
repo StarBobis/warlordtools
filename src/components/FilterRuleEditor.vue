@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
-import { dirname, join, basename, sep } from '@tauri-apps/api/path';
+import { dirname, join, basename } from '@tauri-apps/api/path';
 import { invoke } from "@tauri-apps/api/core";
 import type { FilterBlock, FilterLine } from '../utils/FilterParser';
 
@@ -288,7 +288,6 @@ const browseSound = async () => {
                     
                     // Logic to find relative path from "Path of Exile 2"
                     // User wants: WeGameFilters\...\Sounds\file.wav (Relative to My Games/Path of Exile 2)
-                    let relativeStr = destPath;
                     const marker = "Path of Exile 2";
                     // Normalize to backslashes just in case for search
                     const normalizedDest = destPath.replace(/\//g, '\\');
@@ -324,19 +323,6 @@ const browseSound = async () => {
         console.error('Failed to open dialog:', err);
     }
 };
-
-const disableDropSound = computed({
-    get: () => findLineIndex('DisableDropSound') !== -1,
-    set: (v) => {
-        if (v) {
-            if (findLineIndex('DisableDropSound') === -1) {
-                localBlock.value.lines.push({ key: 'DisableDropSound', values: [], raw: '' });
-            }
-        } else {
-            localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() !== 'disabledropsound');
-        }
-    }
-});
 
 const disableDropSoundIfAlertSound = computed({
     get: () => findLineIndex('DisableDropSoundIfAlertSound') !== -1,

@@ -86,6 +86,50 @@ pub fn open_file(path: &str) -> Result<(), String> {
     }
 }
 
+/// Copy file using PowerShell (Hidden) to bypass some permission issues or just use native shell
+pub fn copy_file_powershell(src: &str, dest: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let s = escape_single_quotes(src);
+        let d = escape_single_quotes(dest);
+        
+        // Ensure directory exists then copy
+        // $d is the full file path. We need to create the parent directory.
+        // PowerShell: New-Item -ItemType Directory -Force -Path (Split-Path -Path 'dest' -Parent); Copy-Item -Path 'src' -Destination 'dest' -Force
+        
+        // Note: We use Split-Path to get parent dir from the destination file path
+        let ps_cmd = format!(
+            "New-Item -ItemType Directory -Force -Path (Split-Path -Path '{}' -Parent); Copy-Item -Path '{}' -Destination '{}' -Force", 
+            d, s, d
+        );
+
+        let mut cmd = Command::new("powershell");
+        cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command").arg(ps_cmd);
+        // Hide window
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let status = cmd.spawn().map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Copy process exited with {}", status))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+         // Fallback to standard FS for non-windows (should retain same permissions usually)
+         use std::fs;
+         use std::path::Path;
+         
+         if let Some(parent) = Path::new(dest).parent() {
+             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+         }
+         fs::copy(src, dest).map_err(|e| e.to_string())?;
+         Ok(())
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

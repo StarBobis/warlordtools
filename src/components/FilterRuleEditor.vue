@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
+import { dirname, join, basename, sep } from '@tauri-apps/api/path';
+import { invoke } from "@tauri-apps/api/core";
 import type { FilterBlock, FilterLine } from '../utils/FilterParser';
 
 const props = defineProps<{
   block: FilterBlock;
   expanded?: boolean;
+  filterPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -265,18 +268,57 @@ const browseSound = async () => {
         });
 
         if (file && typeof file === 'string') {
-            // Use just the filename as standard convention for PoE filters
-            // But allow preserving volume if it exists
             const current = customAlertSound.value;
             const currentInfo = current.match(/(.*)\s+(\d+)$/);
             const vol = currentInfo ? ' ' + currentInfo[2] : '';
             
-            // Extract basename for cleaner filter file (assuming files are next to filter)
-            // If user wants full path, they can edit it manually or we can change this policy.
-            // Using basic replacement for cross-platform path separators
-            const basename = file.replace(/^.*[\\/]/, '');
+            let finalName = '';
             
-            customAlertSound.value = basename + vol;
+            // If we know where the filter is, we copy the sound to a "Sounds" subfolder
+            if (props.filterPath) {
+                try {
+                    const filterDir = await dirname(props.filterPath);
+                    const soundsDir = await join(filterDir, 'Sounds');
+                    const fileName = await basename(file);
+                    const destPath = await join(soundsDir, fileName);
+                    
+                    // Call backend to copy (which handles directory creation via PowerShell)
+                    // This bypasses frontend scope restrictions
+                    await invoke('copy_sound_file', { src: file, dest: destPath });
+                    
+                    // Logic to find relative path from "Path of Exile 2"
+                    // User wants: WeGameFilters\...\Sounds\file.wav (Relative to My Games/Path of Exile 2)
+                    let relativeStr = destPath;
+                    const marker = "Path of Exile 2";
+                    // Normalize to backslashes just in case for search
+                    const normalizedDest = destPath.replace(/\//g, '\\');
+                    
+                    const markerIndex = normalizedDest.toLowerCase().lastIndexOf(marker.toLowerCase());
+                    
+                    if (markerIndex !== -1) {
+                         // + marker.length to skip the marker name
+                         // + 1 to skip the separator after it
+                         let rel = normalizedDest.substring(markerIndex + marker.length);
+                         if (rel.startsWith('\\') || rel.startsWith('/')) {
+                             rel = rel.substring(1);
+                         }
+                         finalName = rel;
+                    } else {
+                         // Fallback relative to filter content
+                         finalName = `Sounds\\${fileName}`;
+                    }
+                    
+                } catch (ioErr) {
+                    console.error("Error copying sound file:", ioErr);
+                    // Fallback: just use filename
+                    finalName = await basename(file);
+                }
+            } else {
+                // Fallback: extract basename manually if path API fails or no filter path
+                finalName = file.replace(/^.*[\\/]/, '');
+            }
+            
+            customAlertSound.value = finalName + vol;
         }
     } catch (err) {
         console.error('Failed to open dialog:', err);

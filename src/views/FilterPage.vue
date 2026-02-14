@@ -453,6 +453,7 @@ onActivated(async () => {
                 :id="'block-' + block.id"
                 :block="block"
                 :expanded="isBlockExpanded(block)"
+                :filterPath="selectedFile?.path"
                 @update:expanded="(val) => handleBlockToggle(block, val)"
                 @open-ctx-menu="(e) => onBlockContextMenu(e, block.id)"
                 @focus="focusedBlockId = block.id"

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::fs;
 use tauri::Manager;
 pub mod powershell_opener;
-pub use powershell_opener::{open_file, open_folder};
+pub use powershell_opener::{open_file, open_folder, copy_file_powershell};
 
 #[tauri::command]
 fn open_folder_cmd(path: String) -> Result<(), String> {
@@ -13,6 +13,12 @@ fn open_folder_cmd(path: String) -> Result<(), String> {
 fn open_file_cmd(path: String) -> Result<(), String> {
     open_file(&path)
 }
+
+#[tauri::command]
+fn copy_sound_file(src: String, dest: String) -> Result<(), String> {
+    copy_file_powershell(&src, &dest)
+}
+
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -111,7 +117,8 @@ pub fn run() {
             write_file_content,
             open_folder_cmd,
             open_file_cmd,
-            create_overlay_window
+            create_overlay_window,
+            copy_sound_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

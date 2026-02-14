@@ -56,14 +56,15 @@ const filteredBlocks = computed(() => {
 });
 
 const getBlockKey = (block: FilterBlock) => {
-    return block.rawHeader?.trim() || `${block.type}-${block.category}-${block.name}`;
+    // Return unique ID to prevent collisions between identical blocks
+    return block.id;
 };
 
 const isBlockExpanded = (block: FilterBlock) => {
     if (!selectedFile.value) return false;
     const path = selectedFile.value.path;
     const state = globalViewState[path];
-    return state ? state.expandedKey === getBlockKey(block) : false;
+    return state ? state.expandedKey === block.id : false;
 };
 
 const handleBlockToggle = async (block: FilterBlock, expanded: boolean) => {
@@ -74,9 +75,8 @@ const handleBlockToggle = async (block: FilterBlock, expanded: boolean) => {
         globalViewState[path] = { expandedKey: null, scrollY: 0 };
     }
     
-    const key = getBlockKey(block);
     if (expanded) {
-        globalViewState[path].expandedKey = key;
+        globalViewState[path].expandedKey = block.id;
          // Also update focused block to this one if expanded
         focusedBlockId.value = block.id;
         
@@ -86,14 +86,10 @@ const handleBlockToggle = async (block: FilterBlock, expanded: boolean) => {
         // Scroll the active block into view
         const el = document.getElementById(`block-${block.id}`);
         if (el) {
-            // "start" aligns the top of the element with the top of the container
-            // "nearest" is less intrusive if it's already in view
-            // Using "start" ensures user looks at the start of the rule they just opened
-            // plus a small delay to handle any layout thrashing if necessary
             el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     } else {
-        if (globalViewState[path].expandedKey === key) {
+        if (globalViewState[path].expandedKey === block.id) {
              globalViewState[path].expandedKey = null;
         }
     }

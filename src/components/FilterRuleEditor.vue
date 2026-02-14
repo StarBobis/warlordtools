@@ -989,7 +989,7 @@ const removeLineAtIndex = (idx: number) => {
          <!-- Colors -->
          <div class="form-grid">
             <div class="form-group">
-                <label>Text Color</label>
+                <label>文字颜色</label>
                 <div class="color-input-group">
                     <div class="color-picker-wrapper">
                         <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
@@ -999,7 +999,7 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
             </div>
             <div class="form-group">
-                 <label>Background</label>
+                 <label>背景颜色</label>
                  <div class="color-input-group">
                     <div class="color-picker-wrapper">
                         <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
@@ -1009,7 +1009,7 @@ const removeLineAtIndex = (idx: number) => {
                  </div>
              </div>
              <div class="form-group">
-                 <label>Border</label>
+                 <label>边框颜色</label>
                  <div class="color-input-group">
                     <div class="color-picker-wrapper">
                         <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
@@ -1023,11 +1023,11 @@ const removeLineAtIndex = (idx: number) => {
          <!-- Display & Sound -->
          <div class="form-grid four-col">
              <div class="form-group">
-                 <label>Font Size</label>
+                 <label>字体大小</label>
                  <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
              </div>
              <div class="form-group">
-                 <label>Play Effect</label>
+                 <label>光柱颜色</label>
                  <div style="display: flex; gap: 8px; align-items: center;">
                     <select v-model="playEffectColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[playEffectColor] || 'inherit' }">
                         <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
@@ -1035,7 +1035,7 @@ const removeLineAtIndex = (idx: number) => {
                     </select>
                     <label class="bool-check" style="margin-bottom: 0;">
                         <input type="checkbox" v-model="playEffectTemp" />
-                        Temp
+                        只在掉落时显示光柱
                     </label>
                  </div>
              </div>
@@ -1044,7 +1044,7 @@ const removeLineAtIndex = (idx: number) => {
                  <input v-model="minimapIcon" class="glass-input small" placeholder="Size Clr Shape" />
              </div>
              <div class="form-group start-col-span-2">
-                 <label>Alert Sound</label>
+                 <label>掉落音效</label>
                  <div style="display: flex; gap: 4px; align-items: center;">
                     <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
                         <option value="">None</option>
@@ -1052,7 +1052,7 @@ const removeLineAtIndex = (idx: number) => {
                     </select>
                     <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
                         <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
-                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">Vol</span>
+                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
                     </div>
                  </div>
              </div>

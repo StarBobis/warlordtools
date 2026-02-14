@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
-import { dirname, join, basename } from '@tauri-apps/api/path';
-import { invoke } from "@tauri-apps/api/core";
+import { basename } from '@tauri-apps/api/path';
 import type { FilterBlock, FilterLine } from '../utils/FilterParser';
 
 const props = defineProps<{
@@ -169,6 +168,15 @@ watch(isExpanded, (val) => {
     }
 });
 
+// When type is Minimal, keep only BaseType lines and ignore other attributes
+watch(() => localBlock.value.type, (val) => {
+    if (val === 'Minimal') {
+        // Strict filtering: minimal blocks only support BaseType
+        localBlock.value.lines = localBlock.value.lines.filter(l => l.key.toLowerCase() === 'basetype');
+        showAdvanced.value = false;
+    }
+}, { immediate: true });
+
 
 const itemClass = computed({
     get: () => getLineValue('Class'),
@@ -207,124 +215,71 @@ const alertSoundVolume = computed({
              const n = parseInt(parts[1]);
              return isNaN(n) ? 50 : n;
         }
-        return 50; // Default to 50 as requested if volume is missing
+        return 50;
     },
-    set: (v: string | number) => {
-        // Clamp between 0 and 300
-        const val = v === '' ? 50 : Number(v);
-        const newVol = Math.max(0, Math.min(300, isNaN(val) ? 50 : val));
-        
+    set: (v) => {
         const current = getLineValue('PlayAlertSound');
         const parts = current ? current.trim().split(' ') : [];
-        let id = '1';
-        if (parts.length >= 1 && parts[0]) {
-            id = parts[0];
-        } else {
-             // If no ID exists (rule disabled), defaulting to ID 1 to enable it
-             id = '1';
-        }
-        setLineValue('PlayAlertSound', `${id} ${newVol}`);
+        let id = parts[0] || '';
+        if (!id) return; // If no sound ID, volume is irrelevant? or maybe set default ID?
+        
+        let vol = 50;
+        const n = parseInt(v.toString());
+        if (!isNaN(n)) vol = Math.max(0, Math.min(300, n));
+        
+        setLineValue('PlayAlertSound', `${id} ${vol}`);
     }
 });
 
 const customAlertSound = computed({
-    get: () => getLineValue('CustomAlertSound'),
-    set: (val) => {
-        if (!val.trim()) {
-            localBlock.value.lines = localBlock.value.lines.filter(l => l.key !== 'CustomAlertSound');
-            return;
-        }
-        
-        // Heuristic: Check if last part is a volume number (0-300)
-        const parts = val.trim().match(/(.*)\s+(\d+)$/);
-        
-        let file = val.trim();
-        let vol = '';
-        
-        if (parts) {
-            file = parts[1];
-            vol = parts[2];
-        }
-
-        const values = [`"${file.replace(/"/g, '')}"`];
-        if (vol) values.push(vol);
-
-        const key = 'CustomAlertSound';
-        const idx = localBlock.value.lines.findIndex(l => l.key === key);
-        const newLine: FilterLine = { key, values, raw: '' };
-
-        if (idx >= 0) {
-            localBlock.value.lines[idx] = newLine;
+    get: () => {
+        const val = getLineValue('CustomAlertSound');
+        if (!val) return '';
+        // Format: "Path" "Volume" or just "Path"
+        // But CustomAlertSound usually just takes the path in quotes if contain spaces
+        return val.replace(/"/g, '');
+    },
+    set: (v) => {
+        if (!v) {
+             setLineValue('CustomAlertSound', '');
         } else {
-            localBlock.value.lines.push(newLine);
+             setLineValue('CustomAlertSound', `"${v}"`);
         }
     }
 });
 
 const browseSound = async () => {
     try {
-        const file = await open({
+        const selected = await open({
             multiple: false,
             filters: [{
-                name: 'Audio Files',
+                name: 'Audio',
                 extensions: ['mp3', 'wav', 'ogg']
             }]
         });
-
-        if (file && typeof file === 'string') {
-            const current = customAlertSound.value;
-            const currentInfo = current.match(/(.*)\s+(\d+)$/);
-            const vol = currentInfo ? ' ' + currentInfo[2] : '';
+        
+        if (selected && typeof selected === 'string') {
+            // Ideally stick relative to filter path if possible, but absolute path is safer for now
+            // Or just file name if in same folder
+            // Let's use the full path but ensure quotes
+            // Extract filename only ? usually custom sounds are local
+            // For now, let's just use the filename if the filter is in the same directory, 
+            // but we don't know filter path easily here without props.filterPath
             
-            let finalName = '';
+            // If we have filterPath, we can try to make it relative
+            // let finalPath = selected;
+            // if (props.filterPath) {
+            //      const filterDir = await dirname(props.filterPath);
+            //      if (selected.startsWith(filterDir)) {
+            //          // Make relative
+            //          // This is intricate without a relative path helper, let's just usage filename if in same dir
+            //      }
+            // }
             
-            // If we know where the filter is, we copy the sound to a "Sounds" subfolder
-            if (props.filterPath) {
-                try {
-                    const filterDir = await dirname(props.filterPath);
-                    const soundsDir = await join(filterDir, 'Sounds');
-                    const fileName = await basename(file);
-                    const destPath = await join(soundsDir, fileName);
-                    
-                    // Call backend to copy (which handles directory creation via PowerShell)
-                    // This bypasses frontend scope restrictions
-                    await invoke('copy_sound_file', { src: file, dest: destPath });
-                    
-                    // Logic to find relative path from "Path of Exile 2"
-                    // User wants: WeGameFilters\...\Sounds\file.wav (Relative to My Games/Path of Exile 2)
-                    const marker = "Path of Exile 2";
-                    // Normalize to backslashes just in case for search
-                    const normalizedDest = destPath.replace(/\//g, '\\');
-                    
-                    const markerIndex = normalizedDest.toLowerCase().lastIndexOf(marker.toLowerCase());
-                    
-                    if (markerIndex !== -1) {
-                         // + marker.length to skip the marker name
-                         // + 1 to skip the separator after it
-                         let rel = normalizedDest.substring(markerIndex + marker.length);
-                         if (rel.startsWith('\\') || rel.startsWith('/')) {
-                             rel = rel.substring(1);
-                         }
-                         finalName = rel;
-                    } else {
-                         // Fallback relative to filter content
-                         finalName = `Sounds\\${fileName}`;
-                    }
-                    
-                } catch (ioErr) {
-                    console.error("Error copying sound file:", ioErr);
-                    // Fallback: just use filename
-                    finalName = await basename(file);
-                }
-            } else {
-                // Fallback: extract basename manually if path API fails or no filter path
-                finalName = file.replace(/^.*[\\/]/, '');
-            }
-            
-            customAlertSound.value = finalName + vol;
+            customAlertSound.value = await basename(selected);
         }
     } catch (err) {
-        console.error('Failed to open dialog:', err);
+        console.error('Failed to open dialog', err);
     }
 };
 
@@ -855,6 +810,7 @@ const removeLineAtIndex = (idx: number) => {
              ></textarea>
          </div>
 
+         <template v-if="localBlock.type !== 'Minimal'">
          <div class="form-row full-width">
             <label>物品分类 (可选) [Class]</label>
             <input v-model.lazy="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
@@ -1247,6 +1203,8 @@ const removeLineAtIndex = (idx: number) => {
                  </label>
              </div>
          </div>
+         </template>
+
     </div>
   </div>
 </template>

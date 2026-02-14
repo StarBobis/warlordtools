@@ -3,7 +3,7 @@ import { ref, onMounted, onActivated, nextTick, reactive, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { configManager } from "../utils/ConfigManager";
-import { FilterParser, type FilterBlock } from '../utils/FilterParser';
+import { FilterParser, type FilterBlock, type FilterLine } from '../utils/FilterParser';
 import FilterRuleEditor from '../components/FilterRuleEditor.vue';
 
 interface FilterFile {
@@ -25,6 +25,9 @@ const currentViewMode = ref<'visual' | 'code'>('visual');
 const rawContent = ref<string>("");
 const visualListRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
+// Buffer for copying attributes (non-BaseType lines)
+const clipboardLines = ref<FilterLine[]>([]);
+
 
 const filteredBlocks = computed(() => {
     if (!searchQuery.value) return parsedBlocks.value;
@@ -123,12 +126,21 @@ const reuseBlockIds = (prev: FilterBlock[], next: FilterBlock[]) => {
     return `${b.rawHeader}|${b.type}|${linesSig}`;
   };
 
-  const map = new Map<string, string>();
-  prev.forEach(b => map.set(makeSig(b), b.id));
+  // Allow duplicate signatures by storing queues of IDs
+  const bucket = new Map<string, string[]>();
+  prev.forEach(b => {
+    const sig = makeSig(b);
+    const arr = bucket.get(sig) ?? [];
+    arr.push(b.id);
+    bucket.set(sig, arr);
+  });
 
   next.forEach(b => {
-    const id = map.get(makeSig(b));
-    if (id) b.id = id;
+    const sig = makeSig(b);
+    const arr = bucket.get(sig);
+    if (arr && arr.length) {
+      b.id = arr.shift() as string;
+    }
   });
 
   return next;
@@ -480,6 +492,63 @@ const contextMenu = reactive<{
     targetBlockId: null
 });
 
+// Copy/paste helpers (exclude BaseType to respect rule identity)
+const cloneNonBaseLines = (block: FilterBlock): FilterLine[] => {
+  return block.lines
+    .filter((l) => l.key.toLowerCase() !== 'basetype')
+    .map((l) => ({ ...l, values: [...l.values] }));
+};
+
+const copyBlockAttributes = (blockId: string) => {
+  const source = parsedBlocks.value.find((b) => b.id === blockId);
+  if (!source) {
+    contextMenu.visible = false;
+    return;
+  }
+  clipboardLines.value = cloneNonBaseLines(source);
+  contextMenu.visible = false;
+};
+
+const pasteBlockAttributes = (blockId: string) => {
+  if (!clipboardLines.value.length) {
+    contextMenu.visible = false;
+    return;
+  }
+  const target = parsedBlocks.value.find((b) => b.id === blockId);
+  if (!target) {
+    contextMenu.visible = false;
+    return;
+  }
+  const baseLines = target.lines
+    .filter((l) => l.key.toLowerCase() === 'basetype')
+    .map((l) => ({ ...l, values: [...l.values] }));
+  const pasted = clipboardLines.value.map((l) => ({ ...l, values: [...l.values] }));
+  target.lines = [...baseLines, ...pasted];
+  contextMenu.visible = false;
+};
+
+const createBlockFromAttributes = (blockId: string) => {
+  const source = parsedBlocks.value.find((b) => b.id === blockId);
+  if (!source) {
+    contextMenu.visible = false;
+    return;
+  }
+
+  const newBlock: FilterBlock = {
+    id: crypto.randomUUID(),
+    type: source.type,
+    startLine: 0,
+    category: source.category,
+    name: source.name,
+    priority: source.priority,
+    rawHeader: source.rawHeader,
+    lines: cloneNonBaseLines(source)
+  };
+
+  parsedBlocks.value.unshift(newBlock);
+  contextMenu.visible = false;
+};
+
 const onBlockContextMenu = (event: MouseEvent, blockId: string) => {
     // Prevent default browser menu
     // (Handled by .prevent in child, but good to ensure logic here)
@@ -615,6 +684,18 @@ onActivated(async () => {
      
      <!-- Custom Context Menu -->
      <div v-if="contextMenu.visible" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+      <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && copyBlockAttributes(contextMenu.targetBlockId)">
+        <span>📄 复制属性（不含 BaseType）</span>
+      </div>
+      <div 
+        class="context-menu-item" 
+        :class="{ disabled: !clipboardLines.length }"
+        @click.stop="contextMenu.targetBlockId && clipboardLines.length && pasteBlockAttributes(contextMenu.targetBlockId)">
+        <span>📋 粘贴属性（不含 BaseType）</span>
+      </div>
+      <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && createBlockFromAttributes(contextMenu.targetBlockId)">
+        <span>➕ 以此规则属性创建新规则</span>
+      </div>
         <div class="context-menu-item danger" @click.stop="deleteTargetBlock">
             <span>🗑️ 删除规则 (Delete)</span>
         </div>
@@ -767,6 +848,14 @@ onActivated(async () => {
 
 .context-menu-item:hover {
     background: #37373d;
+}
+
+.context-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.context-menu-item.disabled:hover {
+  background: inherit;
 }
 
 .context-menu-item.danger {

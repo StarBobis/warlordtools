@@ -1220,8 +1220,10 @@ const removeLineAtIndex = (idx: number) => {
                     </div>
                  </div>
              </div>
-             <div class="form-group start-col-span-2">
-                 <label>Custom Sound</label>
+             
+             <!-- Custom Sound -->
+             <div class="form-group full-width">
+                 <label>自定义音效</label>
                  <div class="input-group">
                     <input v-model="customAlertSound" class="glass-input small" placeholder='File "Vol"' />
                     <button @click="browseSound" class="glass-button icon" title="Select File">📂</button>
@@ -1230,10 +1232,6 @@ const removeLineAtIndex = (idx: number) => {
          </div>
          
          <div class="form-row checkbox-row">
-             <label class="checkbox-label">
-                 <input type="checkbox" v-model="disableDropSound" />
-                 <span>Disable Drop Sound</span>
-             </label>
              <label class="checkbox-label">
                  <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
                  <span>Quiet if Alert</span>

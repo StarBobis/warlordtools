@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onActivated, nextTick, reactive, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { configManager } from "../utils/ConfigManager";
 import { FilterParser, type FilterBlock } from '../utils/FilterParser';
 import FilterRuleEditor from '../components/FilterRuleEditor.vue';
@@ -114,6 +115,124 @@ const restoreVisualScroll = async () => {
         if (visualListRef.value) {
             visualListRef.value.scrollTop = globalViewState[selectedFile.value.path].scrollY;
         }
+    }
+};
+
+// File Context Menu & Operations
+const fileContextMenu = reactive({
+    visible: false,
+    x: 0,
+    y: 0,
+    targetFile: null as FilterFile | null
+});
+
+// Global handler reference to ensure proper cleanup
+let activeCloseMenu: (() => void) | null = null;
+
+const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
+    // Cleanup previous menu listeners immediately
+    if (activeCloseMenu) {
+        window.removeEventListener('click', activeCloseMenu);
+        window.removeEventListener('contextmenu', activeCloseMenu);
+        activeCloseMenu = null;
+    }
+
+    fileContextMenu.x = event.clientX;
+    fileContextMenu.y = event.clientY;
+    fileContextMenu.targetFile = file;
+    fileContextMenu.visible = true;
+
+    // Define new close handler
+    const closeMenu = () => {
+        fileContextMenu.visible = false;
+        if (activeCloseMenu) {
+             window.removeEventListener('click', activeCloseMenu);
+             window.removeEventListener('contextmenu', activeCloseMenu);
+             activeCloseMenu = null;
+        }
+    };
+    
+    activeCloseMenu = closeMenu;
+
+    requestAnimationFrame(() => {
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('contextmenu', closeMenu);
+    });
+};
+
+const promptDelete = async () => {
+    // 1. Hide menu immediately
+    fileContextMenu.visible = false;
+    
+    // Cleanup listeners since we force closed it
+    if (activeCloseMenu) {
+        window.removeEventListener('click', activeCloseMenu);
+        window.removeEventListener('contextmenu', activeCloseMenu);
+        activeCloseMenu = null;
+    }
+
+    if (!fileContextMenu.targetFile) return;
+    const targetFile = fileContextMenu.targetFile;
+
+    try {
+        const yes = await ask(`确定要删除过滤器 "${targetFile.name}" 吗？\n此操作无法撤销。`, {
+            title: '确认删除',
+            kind: 'warning',
+            okLabel: '删除',
+            cancelLabel: '取消'
+        });
+
+        if (!yes) return;
+
+        await invoke("delete_filter_file", { path: targetFile.path });
+        
+        // If deleted file was selected, clear selection
+        if (selectedFile.value?.path === targetFile.path) {
+            selectedFile.value = null;
+            parsedBlocks.value = [];
+        }
+        
+        await scanFilters();
+    } catch (e) {
+        console.error("Delete operation failed", e);
+        // Note: ask() might check for permission errors locally on some capabilities but usually works
+        alert(`操作失败: ${e}`);
+    }
+};
+
+const openCreateDialog = async () => {
+    const inputName = prompt("请输入新过滤器名称 (.filter):", "NewFilter");
+    if (!inputName || !inputName.trim()) return;
+
+    // Ensure .filter extension
+    let name = inputName.trim();
+    if (!name.toLowerCase().endsWith('.filter')) {
+        name += '.filter';
+    }
+    
+    const settings = configManager.getSettings();
+    if (!settings.filterStoragePath) {
+         alert("请先配置过滤器存储路径");
+         return;
+    }
+    
+    // Construct full path
+    const path = `${settings.filterStoragePath}\\${name}`;
+    
+    try {
+        // Create empty filter or simple template
+        const template = `# Type: Custom\n# Name: ${name}\n\nShow\n    SetFontSize 32\n    SetBorderColor 255 255 255\n`;
+        await invoke("write_file_content", { path, content: template });
+        
+        await scanFilters();
+        
+        // Auto select new file
+        const newFile = filterFiles.value.find(f => f.name === name);
+        if (newFile) {
+            selectFile(newFile);
+        }
+    } catch (e) {
+        alert(`创建失败: ${e}`);
     }
 };
 
@@ -401,7 +520,10 @@ onActivated(async () => {
     <div class="sidebar glass-panel">
       <div class="sidebar-header">
         <h3>过滤器列表</h3>
-        <button class="glass-button small" @click="scanFilters">刷新</button>
+        <div style="display: flex; gap: 4px;">
+            <button class="glass-button small icon" @click="openCreateDialog" title="新建过滤器">+</button>
+            <button class="glass-button small icon" @click="scanFilters" title="刷新">↻</button>
+        </div>
       </div>
       <div class="file-list">
         <div 
@@ -410,6 +532,7 @@ onActivated(async () => {
           class="file-item"
           :class="{ active: selectedFile?.path === file.path }"
           @click="selectFile(file)"
+          @contextmenu.prevent.stop="onFileContextMenu($event, file)"
         >
           <span class="file-icon">📄</span>
           <span class="file-name">{{ file.name }}</span>
@@ -485,6 +608,14 @@ onActivated(async () => {
     <div v-else class="welcome-state glass-panel main-content">
         <p>请选择左侧文件</p>
     </div>
+
+    <!-- File Context Menu -->
+     <div v-if="fileContextMenu.visible" class="context-menu" :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }">
+        <div class="context-menu-item danger" @click.stop="promptDelete">
+            <span>🗑️ 删除文件 (Delete)</span>
+        </div>
+     </div>
+
   </div>
 </template>
 

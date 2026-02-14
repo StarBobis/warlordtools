@@ -74,6 +74,11 @@ fn write_file_content(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn delete_filter_file(path: String) -> Result<(), String> {
+    fs::remove_file(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn create_overlay_window(app: tauri::AppHandle, label: String, target_url: String) -> Result<(), String> {
     if app.get_webview_window(&label).is_some() {
         return Ok(());
@@ -118,7 +123,8 @@ pub fn run() {
             open_folder_cmd,
             open_file_cmd,
             create_overlay_window,
-            copy_sound_file
+            copy_sound_file,
+            delete_filter_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

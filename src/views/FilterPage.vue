@@ -479,7 +479,6 @@ const buildFileTree = (paths: string[], rootPath: string | undefined): FileNode[
                 // Construct path up to this part
                 // This is a bit tricky with separators logic but let's try
                 // Simple approach: parent node path + part
-                const parentPath = currentLevel === rootNodes ? rootPath : null; 
                 // Wait, recursive search for path construction is complex.
                 // BUT, 'fullPath' contains everything.
                 // For intermediate folders, we can deduce.

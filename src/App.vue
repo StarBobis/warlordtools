@@ -28,8 +28,16 @@ onMounted(async () => {
 
   // 2. Restore Size (and maximize state if we had it)
   if (settings.width && settings.height) {
+     // Safety check: ensure we don't restore to a tiny/unusable window
+     // Using min dimensions from tauri.conf.json (1056x594) as baseline
+     const kMinWidth = 1056;
+     const kMinHeight = 594;
+     
+     const safeWidth = Math.max(settings.width, kMinWidth);
+     const safeHeight = Math.max(settings.height, kMinHeight);
+
      // Apply size
-     await appWindow.setSize(new LogicalSize(settings.width, settings.height));
+     await appWindow.setSize(new LogicalSize(safeWidth, safeHeight));
   }
   
   if (settings.maximized) {
@@ -47,12 +55,16 @@ onMounted(async () => {
           const size = await appWindow.innerSize();
           const logical = size.toLogical(factor);
           const isMaximized = await appWindow.isMaximized();
+          const isMinimized = await appWindow.isMinimized();
           
-          await configManager.saveSettings({
-              width: logical.width,
-              height: logical.height,
-              maximized: isMaximized
-          });
+          // Only save dimensions if window is in a valid state (not minimized, and has reasonable size)
+          if (!isMinimized && logical.width > 100 && logical.height > 100) {
+              await configManager.saveSettings({
+                  width: logical.width,
+                  height: logical.height,
+                  maximized: isMaximized
+              });
+          }
       } catch (e) {
           console.error("Failed to save config on close", e);
       } finally {

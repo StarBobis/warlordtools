@@ -2,6 +2,8 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { basename } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
+import { configManager } from '../utils/ConfigManager';
 import type { FilterBlock, FilterLine } from '../utils/FilterParser';
 
 const props = defineProps<{
@@ -288,6 +290,41 @@ const customAlertSound = computed({
     }
 });
 
+const getSeparator = (sample: string) => (sample.includes('\\') ? '\\' : '/');
+
+const buildSoundsTarget = (filterPath?: string) => {
+    if (!filterPath) return null;
+    const sep = getSeparator(filterPath);
+    const filterDir = filterPath.replace(/[/\\][^/\\]+$/, '');
+    const soundsDir = `${filterDir}${sep}Sounds`;
+    return { sep, filterDir, soundsDir };
+};
+
+const computeRelativeToPoE2 = (absolutePath: string) => {
+    const settings = configManager.getSettings();
+    const storage = settings.filterStoragePath || '';
+    if (!storage) return absolutePath;
+
+    const sep = getSeparator(storage);
+    const splitPath = (p: string) => p.split(/[/\\]+/).filter(Boolean);
+    const storageSegs = splitPath(storage);
+    const idx = storageSegs.findIndex(s => s.toLowerCase() === 'path of exile 2');
+    if (idx === -1) return absolutePath;
+
+    const baseRoot = storageSegs.slice(0, idx + 1).join(sep);
+    const norm = (p: string) => p.replace(/\\/g, '/');
+    const baseNorm = norm(baseRoot).replace(/\/+$/, '');
+    const absNorm = norm(absolutePath);
+
+    if (!absNorm.toLowerCase().startsWith(baseNorm.toLowerCase())) {
+        return absolutePath;
+    }
+
+    let relative = absNorm.slice(baseNorm.length);
+    relative = relative.replace(/^\/+/, '');
+    return relative.replace(/\//g, sep);
+};
+
 const browseSound = async () => {
     try {
         const selected = await open({
@@ -299,24 +336,25 @@ const browseSound = async () => {
         });
         
         if (selected && typeof selected === 'string') {
-            // Ideally stick relative to filter path if possible, but absolute path is safer for now
-            // Or just file name if in same folder
-            // Let's use the full path but ensure quotes
-            // Extract filename only ? usually custom sounds are local
-            // For now, let's just use the filename if the filter is in the same directory, 
-            // but we don't know filter path easily here without props.filterPath
-            
-            // If we have filterPath, we can try to make it relative
-            // let finalPath = selected;
-            // if (props.filterPath) {
-            //      const filterDir = await dirname(props.filterPath);
-            //      if (selected.startsWith(filterDir)) {
-            //          // Make relative
-            //          // This is intricate without a relative path helper, let's just usage filename if in same dir
-            //      }
-            // }
-            
-            customAlertSound.value = await basename(selected);
+            const fileName = await basename(selected);
+            let finalPath = fileName;
+
+            const targets = buildSoundsTarget(props.filterPath);
+            if (targets) {
+                const { sep, soundsDir } = targets;
+                const dest = `${soundsDir}${sep}${fileName}`;
+
+                try {
+                    await invoke('create_filter_folder', { path: soundsDir });
+                    await invoke('copy_sound_file', { src: selected, dest });
+                    finalPath = computeRelativeToPoE2(dest);
+                } catch (err) {
+                    console.error('Copy sound failed', err);
+                    // Fall back to filename
+                }
+            }
+
+            customAlertSound.value = finalPath;
         }
     } catch (err) {
         console.error('Failed to open dialog', err);

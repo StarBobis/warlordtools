@@ -100,6 +100,7 @@ const setLineValue = (key: string, val: string, needsQuotes = false) => {
   } else {
     localBlock.value.lines.push(newLine);
   }
+
 };
 
 // Computed Properties for common fields
@@ -410,7 +411,88 @@ const createBooleanComputed = (key: string) => computed({
 const itemLevel = createNumericComputed('ItemLevel');
 const dropLevel = createNumericComputed('DropLevel');
 const quality = createNumericComputed('Quality');
-const rarity = createNumericComputed('Rarity'); // Enhanced to support >= Rare
+const rarityValues = computed<string[]>({
+    get: () => {
+        const idx = findLineIndex('Rarity');
+        if (idx === -1) return [];
+        return localBlock.value.lines[idx].values.map(v => v.trim()).filter(Boolean);
+    },
+    set: (vals: string[]) => {
+        const cleaned = vals.map(v => v.trim()).filter(Boolean);
+        const idx = findLineIndex('Rarity');
+        if (cleaned.length === 0) {
+            if (idx !== -1) {
+                localBlock.value.lines.splice(idx, 1);
+            }
+            return;
+        }
+        const line = { key: 'Rarity', values: cleaned, raw: '' } as FilterLine;
+        if (idx !== -1) {
+            localBlock.value.lines[idx] = line;
+        } else {
+            localBlock.value.lines.push(line);
+        }
+    }
+});
+
+const rarityInput = ref('');
+const rarityDisplay = computed(() => rarityValues.value.join(' '));
+const rarityOptions = ['Normal', 'Magic', 'Rare', 'Unique', '>= Magic', '>= Rare', '<= Magic', '<= Rare'];
+const rarityColorMap: Record<string, string> = {
+    Normal: '#ffffff',
+    Magic: '#4da3ff',
+    Rare: '#f7d059',
+    Unique: '#ff9f43'
+};
+
+const hexToRgba = (hex: string, alpha: number) => {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return `rgba(255,255,255,${alpha})`;
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const rarityChipStyle = (opt: string, active: boolean) => {
+    const base = rarityColorMap[opt] || '#dfefff';
+    return {
+        color: base,
+        background: active ? hexToRgba(base, 0.2) : 'transparent',
+        borderColor: active ? hexToRgba(base, 0.5) : 'rgba(255,255,255,0.12)'
+    };
+};
+
+const rarityTagStyle = (val: string) => {
+    const base = rarityColorMap[val] || '#409eff';
+    return {
+        background: hexToRgba(base, 0.2),
+        color: base,
+        borderColor: hexToRgba(base, 0.5)
+    };
+};
+
+const addRarityValue = () => {
+    const val = rarityInput.value.trim();
+    if (!val) return;
+    if (!rarityValues.value.includes(val)) {
+        rarityValues.value = [...rarityValues.value, val];
+    }
+    rarityInput.value = '';
+};
+
+const toggleRarityOption = (val: string) => {
+    if (rarityValues.value.includes(val)) {
+        rarityValues.value = rarityValues.value.filter(v => v !== val);
+    } else {
+        rarityValues.value = [...rarityValues.value, val];
+    }
+};
+
+const removeRarityValue = (idx: number) => {
+    const next = rarityValues.value.filter((_, i) => i !== idx);
+    rarityValues.value = next;
+};
 const stackSize = createNumericComputed('StackSize');
 const width = createNumericComputed('Width');
 const height = createNumericComputed('Height');
@@ -817,7 +899,7 @@ const removeLineAtIndex = (idx: number) => {
                 <span v-if="secondaryLabel" class="header-line secondary">{{ secondaryLabel }}</span>
             </span>
             <div class="preview-tags" v-if="!isExpanded">
-                {{ [itemLevel ? 'Lvl ' + itemLevel : '', rarity].filter(Boolean).join(', ') }}
+                {{ [itemLevel ? 'Lvl ' + itemLevel : '', rarityDisplay].filter(Boolean).join(', ') }}
             </div>
         </div>
       </div>
@@ -954,7 +1036,7 @@ const removeLineAtIndex = (idx: number) => {
              <!-- Sounds -->
              <div class="form-group start-col-span-2" style="grid-column: 1 / span 2;">
                  <label>掉落音效 [PlayAlertSound]</label>
-                 <div style="display: flex; gap: 4px; align-items: center;">
+                 <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                     <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
                         <option value="">None</option>
                         <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
@@ -963,11 +1045,11 @@ const removeLineAtIndex = (idx: number) => {
                         <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
                         <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
                     </div>
+                    <label class="bool-check" style="margin-top: 0; white-space: nowrap;">
+                        <input type="checkbox" v-model="disableDropSound" />
+                        <span>关闭掉落音效 [DisableDropSound]</span>
+                    </label>
                 </div>
-                <label class="bool-check" style="margin-top: 4px;">
-                    <input type="checkbox" v-model="disableDropSound" />
-                    <span>关闭掉落音效 [DisableDropSound]</span>
-                </label>
              </div>
              
              <!-- Custom Sound -->
@@ -988,6 +1070,37 @@ const removeLineAtIndex = (idx: number) => {
 
          <!-- ================= ADVANCED RULES (Collapsible) ================= -->
          <div v-show="showAdvanced" class="conditions-container advanced-section">
+                        <!-- Rarity (dedicated row at top) -->
+                        <div class="rarity-section">
+                                <label>稀有度条件</label>
+                                <div class="rarity-row">
+                                        <div class="rarity-options">
+                                                <button
+                                                    v-for="opt in rarityOptions"
+                                                    :key="opt"
+                                                    class="rarity-chip"
+                                                    :class="{ active: rarityValues.includes(opt) }"
+                                                    :style="rarityChipStyle(opt, rarityValues.includes(opt))"
+                                                    @click.prevent="toggleRarityOption(opt)"
+                                                >
+                                                    {{ opt }}
+                                                </button>
+                                        </div>
+                                        <div class="rarity-selected" v-if="rarityValues.length">
+                                                <div v-for="(val, idx) in rarityValues" :key="val" class="tag" :style="rarityTagStyle(val)">
+                                                        <span>{{ val }}</span>
+                                                        <button class="tag-remove" @click.prevent="removeRarityValue(idx)">✕</button>
+                                                </div>
+                                        </div>
+                                        <input 
+                                            v-model="rarityInput"
+                                            class="glass-input small tag-field"
+                                            placeholder="自定义值后回车添加"
+                                            @keydown.enter.prevent="addRarityValue"
+                                            @blur="addRarityValue"
+                                        />
+                                </div>
+                        </div>
             
             <!-- 1. Requirements & General -->
             <div class="section-title">General Requirements</div>
@@ -1003,19 +1116,6 @@ const removeLineAtIndex = (idx: number) => {
                 <div class="form-group">
                     <label>品质</label>
                     <input v-model="quality" class="glass-input small" placeholder=">= 20" />
-                </div>
-                <div class="form-group">
-                    <label>Rarity</label>
-                    <select v-model="rarity" class="glass-select small">
-                        <option value="">Any</option>
-                        <option value="Normal">Normal</option>
-                        <option value="Magic">Magic</option>
-                        <option value="Rare">Rare</option>
-                        <option value="Unique">Unique</option>
-                        <option value=">= Normal">>= Normal</option>
-                        <option value=">= Magic">>= Magic</option>
-                        <option value=">= Rare">>= Rare</option>
-                    </select>
                 </div>
                 <!-- StackSize, Width, Height -->
                 <div class="form-group">
@@ -1453,6 +1553,99 @@ label {
 .glass-input.small {
     padding: 4px 6px;
     font-size: 12px;
+}
+
+.tag-input {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+}
+
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: rgba(64, 158, 255, 0.12);
+    color: #dfefff;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.tag-remove {
+    background: transparent;
+    border: none;
+    color: #dfefff;
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+}
+
+.tag-field {
+    min-width: 140px;
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #eee;
+}
+
+.tag-field:focus {
+    outline: none;
+}
+
+.rarity-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.rarity-options {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.rarity-chip {
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: transparent;
+    color: #ddd;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s ease;
+}
+
+.rarity-chip:hover {
+    border-color: rgba(64,158,255,0.5);
+    color: #fff;
+}
+
+.rarity-chip.active {
+    box-shadow: 0 0 8px rgba(64,158,255,0.25);
+}
+
+.rarity-selected {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.rarity-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    margin-bottom: 4px;
 }
 
 .glass-select.small {

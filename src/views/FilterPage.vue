@@ -236,6 +236,8 @@ const fileContextMenu = reactive({
     targetFile: null as FilterFile | null
 });
 
+const fileContextMenuRef = ref<HTMLElement | null>(null);
+
 // Global handler reference to ensure proper cleanup
 let activeCloseMenu: (() => void) | null = null;
 
@@ -251,6 +253,19 @@ const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
     fileContextMenu.y = event.clientY;
     fileContextMenu.targetFile = file;
     fileContextMenu.visible = true;
+
+    // Boundary check
+    nextTick(() => {
+        const menuEl = fileContextMenuRef.value;
+        const margin = 8;
+        const menuW = menuEl?.offsetWidth ?? 160;
+        const menuH = menuEl?.offsetHeight ?? 100;
+        const maxX = window.innerWidth - menuW - margin;
+        const maxY = window.innerHeight - menuH - margin;
+        
+        fileContextMenu.x = Math.min(fileContextMenu.x, Math.max(margin, maxX));
+        fileContextMenu.y = Math.min(fileContextMenu.y, Math.max(margin, maxY));
+    });
 
     // Define new close handler
     const closeMenu = () => {
@@ -874,7 +889,12 @@ onActivated(async () => {
 
     <!-- File Context Menu -->
      <Teleport to="body">
-       <div v-if="fileContextMenu.visible" class="context-menu glass-menu" :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }">
+       <div 
+        v-if="fileContextMenu.visible" 
+        ref="fileContextMenuRef"
+        class="context-menu glass-menu" 
+        :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }"
+       >
         <div class="context-menu-item" @click.stop="promptRename">
           <span>✏️ 重命名文件</span>
         </div>

@@ -749,6 +749,27 @@ const toggleExpand = () => {
     }
 };
 
+const commentFirstLine = computed(() => {
+    const raw = (localBlock.value.rawHeader || '')
+        .split('\n')
+        .map(l => l.trim())
+        .find(l => l.length > 0);
+    return raw || '';
+});
+
+const baseLabel = computed(() => {
+    const base = baseTypes.value;
+    const cls = itemClass.value;
+    const name = localBlock.value.name || '';
+    const raw = localBlock.value.rawHeader || '';
+    return base || cls || name || raw || 'Untitled Rule';
+});
+
+const titleLabel = computed(() => {
+    const parts = [baseLabel.value, commentFirstLine.value].filter(Boolean);
+    return parts.join(' | ');
+});
+
 // Known Keys to exclude from Custom Rules list
 const knownKeys = new Set([
   'Class', 'BaseType', 
@@ -790,8 +811,9 @@ const removeLineAtIndex = (idx: number) => {
       <div class="header-left">
         <div class="status-indicator" :class="localBlock.type.toLowerCase()"></div>
         <div class="header-info">
-            <span class="header-title" :title="baseTypes || itemClass || localBlock.name">
-                {{ baseTypes || itemClass || localBlock.name || localBlock.rawHeader || 'Untitled Rule' }}
+            <span class="header-title" :title="titleLabel">
+                <span class="header-line primary">{{ baseLabel }}</span>
+                <span v-if="commentFirstLine" class="header-line secondary">{{ commentFirstLine }}</span>
             </span>
             <div class="preview-tags" v-if="!isExpanded">
                 {{ [itemLevel ? 'Lvl ' + itemLevel : '', rarity].filter(Boolean).join(', ') }}
@@ -841,7 +863,6 @@ const removeLineAtIndex = (idx: number) => {
                     v-model="localBlock.rawHeader" 
                     class="glass-textarea small" 
                     rows="1" 
-                    placeholder="# Comments..."
                     @input="adjustRawHeaderHeight"
                     @focus="adjustRawHeaderHeight"
                  ></textarea>
@@ -973,11 +994,11 @@ const removeLineAtIndex = (idx: number) => {
                     <input v-model="itemLevel" class="glass-input small" placeholder=">= 60" />
                 </div>
                 <div class="form-group">
-                    <label>Drop Level</label>
+                    <label>掉落等级</label>
                     <input v-model="dropLevel" class="glass-input small" placeholder=">= 1" />
                 </div>
                 <div class="form-group">
-                    <label>Quality</label>
+                    <label>品质</label>
                     <input v-model="quality" class="glass-input small" placeholder=">= 20" />
                 </div>
                 <div class="form-group">
@@ -1288,6 +1309,28 @@ const removeLineAtIndex = (idx: number) => {
     font-weight: bold;
     font-size: 14px;
     color: #eee;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.header-line {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.header-line.primary {
+    font-size: 14px;
+    color: #eee;
+}
+
+.header-line.secondary {
+    font-size: 11px;
+    color: #aaa;
 }
 
 .preview-tags {

@@ -518,7 +518,7 @@ const addNewBlock = () => {
         category: 'Custom',
         priority: 'Normal',
         startLine: 0, // Default to top, will be recalculated on save/view switch
-        rawHeader: 'Custom - New Rule - Normal',
+      rawHeader: '',
       inlineComments: [],
       lines: []
     });

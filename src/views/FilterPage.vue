@@ -186,6 +186,52 @@ const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
     });
 };
 
+  const promptRename = async () => {
+    // Close the context menu first
+    fileContextMenu.visible = false;
+
+    if (activeCloseMenu) {
+      window.removeEventListener('click', activeCloseMenu);
+      window.removeEventListener('contextmenu', activeCloseMenu);
+      activeCloseMenu = null;
+    }
+
+    if (!fileContextMenu.targetFile) return;
+    const targetFile = fileContextMenu.targetFile;
+
+    const suggested = targetFile.name.replace(/\.filter$/i, '');
+    const inputName = prompt("请输入新的过滤器名称 (.filter):", suggested);
+    if (!inputName || !inputName.trim()) return;
+
+    let name = inputName.trim();
+    if (!name.toLowerCase().endsWith('.filter')) {
+      name += '.filter';
+    }
+
+    // Build new path in the same directory
+    const dir = targetFile.path.replace(/[/\\][^/\\]+$/, '');
+    const newPath = `${dir}\\${name}`;
+
+    // No-op if unchanged
+    if (newPath === targetFile.path) return;
+
+    try {
+      await invoke("rename_filter_file", { oldPath: targetFile.path, newPath });
+      await scanFilters();
+
+      const renamed = filterFiles.value.find(f => f.path === newPath);
+      if (renamed) {
+        await selectFile(renamed);
+      } else if (selectedFile.value?.path === targetFile.path) {
+        // Fallback: clear selection if the renamed file isn't found after scan
+        selectedFile.value = null;
+        parsedBlocks.value = [];
+      }
+    } catch (e) {
+      alert(`重命名失败: ${e}`);
+    }
+  };
+
 const promptDelete = async () => {
     // 1. Hide menu immediately
     fileContextMenu.visible = false;
@@ -707,6 +753,9 @@ onActivated(async () => {
 
     <!-- File Context Menu -->
      <div v-if="fileContextMenu.visible" class="context-menu" :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }">
+      <div class="context-menu-item" @click.stop="promptRename">
+        <span>✏️ 重命名文件</span>
+      </div>
         <div class="context-menu-item danger" @click.stop="promptDelete">
             <span>🗑️ 删除文件 (Delete)</span>
         </div>

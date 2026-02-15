@@ -804,7 +804,6 @@ const removeLineAtIndex = (idx: number) => {
                 v-model.lazy="baseTypes" 
                 class="glass-textarea" 
                 rows="1"
-                placeholder='e.g. "Divine Orb", "Chaos Orb"'
                 @input="adjustTextareaHeight"
                 @focus="adjustTextareaHeight"
              ></textarea>
@@ -813,7 +812,7 @@ const removeLineAtIndex = (idx: number) => {
          <template v-if="localBlock.type !== 'Minimal'">
          <div class="form-row full-width">
             <label>物品分类 (可选) [Class]</label>
-            <input v-model.lazy="itemClass" class="glass-input" placeholder='e.g. "Currency" "Stackable Currency"' />
+            <input v-model.lazy="itemClass" class="glass-input" />
          </div>
          
          <!-- 2. Metadata / Comments Description -->
@@ -945,7 +944,7 @@ const removeLineAtIndex = (idx: number) => {
             <div class="section-title">General Requirements</div>
             <div class="form-grid four-col">
                 <div class="form-group">
-                    <label title="ItemLevel e.g. >= 85">Item Level</label>
+                    <label title="ItemLevel e.g. >= 85">物品等级</label>
                     <input v-model="itemLevel" class="glass-input small" placeholder=">= 60" />
                 </div>
                 <div class="form-group">
@@ -971,7 +970,7 @@ const removeLineAtIndex = (idx: number) => {
                 </div>
                 <!-- StackSize, Width, Height -->
                 <div class="form-group">
-                    <label>Stack Size</label>
+                    <label>堆叠数量</label>
                     <input v-model="stackSize" class="glass-input small" placeholder=">= 10" />
                 </div>
                 <div class="form-group">

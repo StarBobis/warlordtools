@@ -79,6 +79,17 @@ fn delete_filter_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn rename_filter_file(old_path: String, new_path: String) -> Result<(), String> {
+    let new_path_ref = Path::new(&new_path);
+
+    if new_path_ref.exists() {
+        return Err("目标文件已存在".to_string());
+    }
+
+    fs::rename(&old_path, new_path_ref).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn create_overlay_window(app: tauri::AppHandle, label: String, target_url: String) -> Result<(), String> {
     if app.get_webview_window(&label).is_some() {
         return Ok(());
@@ -124,7 +135,8 @@ pub fn run() {
             open_file_cmd,
             create_overlay_window,
             copy_sound_file,
-            delete_filter_file
+            delete_filter_file,
+            rename_filter_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1191,7 +1191,7 @@ const removeLineAtIndex = (idx: number) => {
                     </div>
                 </div>
             </div>
-
+            
             <!-- 2. Sockets & Links -->
             <div class="section-card">
                 <div class="section-title">Sockets</div>

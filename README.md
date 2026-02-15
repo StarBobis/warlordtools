@@ -72,3 +72,7 @@ cargo clean
 bun tauri build
 ```
 
+# 补充信息
+
+- 制作自定义音效可以试试8bit效果生成器，测了效果还不错：https://sfxr.me/
+- 过滤器规则参考：https://www.pathofexile.com/item-filter/about

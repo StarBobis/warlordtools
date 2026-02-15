@@ -621,6 +621,8 @@ const contextMenu = reactive<{
     targetBlockId: null
 });
 
+const blockContextMenuRef = ref<HTMLElement | null>(null);
+
 // Copy/paste helpers (exclude BaseType to respect rule identity)
 const cloneNonBaseLines = (block: FilterBlock): FilterLine[] => {
   return block.lines
@@ -680,25 +682,37 @@ const createBlockFromAttributes = (blockId: string) => {
 };
 
 const onBlockContextMenu = (event: MouseEvent, blockId: string) => {
-    // Prevent default browser menu
-    // (Handled by .prevent in child, but good to ensure logic here)
+  // Prevent default browser menu
+  // (Handled by .prevent in child, but keep logic here)
+
+  // Use client coords for fixed positioning
+  const margin = 8;
+  contextMenu.x = event.clientX;
+  contextMenu.y = event.clientY;
+  contextMenu.targetBlockId = blockId;
+  contextMenu.visible = true;
+
+  nextTick(() => {
+    const menuEl = blockContextMenuRef.value;
+    const menuW = menuEl?.offsetWidth ?? 180;
+    const menuH = menuEl?.offsetHeight ?? 160;
+    const maxX = window.innerWidth - menuW - margin;
+    const maxY = window.innerHeight - menuH - margin;
+    contextMenu.x = Math.min(contextMenu.x, Math.max(margin, maxX));
+    contextMenu.y = Math.min(contextMenu.y, Math.max(margin, maxY));
+  });
+
+  // Close on next interaction
+  const closeMenu = () => {
+    contextMenu.visible = false;
+    window.removeEventListener('click', closeMenu);
+    window.removeEventListener('contextmenu', closeMenu); // Close if another right click happens
+  };
     
-    contextMenu.x = event.clientX;
-    contextMenu.y = event.clientY;
-    contextMenu.targetBlockId = blockId;
-    contextMenu.visible = true;
-    
-    // Close on next interaction
-    const closeMenu = () => {
-        contextMenu.visible = false;
-        window.removeEventListener('click', closeMenu);
-        window.removeEventListener('contextmenu', closeMenu); // Close if another right click happens
-    };
-    
-    // Delay adding listeners to strictly avoid current event triggering close
-    requestAnimationFrame(() => {
-        window.addEventListener('click', closeMenu);
-    });
+  // Delay adding listeners to strictly avoid current event triggering close
+  requestAnimationFrame(() => {
+    window.addEventListener('click', closeMenu);
+  });
 };
 
 const deleteTargetBlock = () => {
@@ -827,23 +841,30 @@ onActivated(async () => {
         ></textarea>
      
      <!-- Custom Context Menu -->
-     <div v-if="contextMenu.visible" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-      <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && copyBlockAttributes(contextMenu.targetBlockId)">
-        <span>📄 复制属性（不含 BaseType）</span>
-      </div>
-      <div 
-        class="context-menu-item" 
-        :class="{ disabled: !clipboardLines.length }"
-        @click.stop="contextMenu.targetBlockId && clipboardLines.length && pasteBlockAttributes(contextMenu.targetBlockId)">
-        <span>📋 粘贴属性（不含 BaseType）</span>
-      </div>
-      <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && createBlockFromAttributes(contextMenu.targetBlockId)">
-        <span>➕ 以此规则属性创建新规则</span>
-      </div>
-        <div class="context-menu-item danger" @click.stop="deleteTargetBlock">
-            <span>🗑️ 删除规则 (Delete)</span>
+     <Teleport to="body">
+       <div
+        v-if="contextMenu.visible"
+        ref="blockContextMenuRef"
+        class="context-menu glass-menu"
+        :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+       >
+        <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && copyBlockAttributes(contextMenu.targetBlockId)">
+          <span>📄 复制属性（不含 BaseType）</span>
         </div>
-     </div>
+        <div 
+          class="context-menu-item" 
+          :class="{ disabled: !clipboardLines.length }"
+          @click.stop="contextMenu.targetBlockId && clipboardLines.length && pasteBlockAttributes(contextMenu.targetBlockId)">
+          <span>📋 粘贴属性（不含 BaseType）</span>
+        </div>
+        <div class="context-menu-item" @click.stop="contextMenu.targetBlockId && createBlockFromAttributes(contextMenu.targetBlockId)">
+          <span>➕ 以此规则属性创建新规则</span>
+        </div>
+          <div class="context-menu-item danger" @click.stop="deleteTargetBlock">
+              <span>🗑️ 删除规则 (Delete)</span>
+          </div>
+       </div>
+     </Teleport>
 
     </div>
 
@@ -852,19 +873,69 @@ onActivated(async () => {
     </div>
 
     <!-- File Context Menu -->
-     <div v-if="fileContextMenu.visible" class="context-menu" :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }">
-      <div class="context-menu-item" @click.stop="promptRename">
-        <span>✏️ 重命名文件</span>
-      </div>
-        <div class="context-menu-item danger" @click.stop="promptDelete">
-            <span>🗑️ 删除文件 (Delete)</span>
+     <Teleport to="body">
+       <div v-if="fileContextMenu.visible" class="context-menu glass-menu" :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }">
+        <div class="context-menu-item" @click.stop="promptRename">
+          <span>✏️ 重命名文件</span>
         </div>
-     </div>
+          <div class="context-menu-item danger" @click.stop="promptDelete">
+              <span>🗑️ 删除文件 (Delete)</span>
+          </div>
+       </div>
+     </Teleport>
 
   </div>
 </template>
 
 <style scoped>
+/* Global fix for context menus in body */
+:global(.glass-menu) {
+    position: fixed;
+    background: rgba(40, 40, 40, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    border-radius: 8px;
+    z-index: 99999;
+    min-width: 180px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+:global(.glass-menu .context-menu-item) {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #e0e0e0;
+    font-size: 13px;
+    display: flex; 
+    align-items: center; 
+    gap: 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+:global(.glass-menu .context-menu-item:hover) {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    transform: translateX(2px);
+}
+
+:global(.glass-menu .context-menu-item.disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+:global(.glass-menu .context-menu-item.danger) {
+    color: #ff6b6b;
+}
+:global(.glass-menu .context-menu-item.danger:hover) {
+    background: rgba(255, 107, 107, 0.15);
+}
+
 .filter-page {
   display: flex;
   height: 100%;
@@ -992,43 +1063,4 @@ onActivated(async () => {
 
 .save-status { color: #67c23a; font-size: 12px; }
 .welcome-state { align-items: center; justify-content: center; color: #666; }
-
-.context-menu {
-    position: fixed;
-    background: #252526;
-    border: 1px solid #454545;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    border-radius: 4px;
-    z-index: 9999;
-    min-width: 140px;
-    padding: 4px 0;
-}
-
-.context-menu-item {
-    padding: 8px 12px;
-    cursor: pointer;
-    color: #eee;
-    font-size: 13px;
-    display: flex; align-items: center; gap: 8px;
-    transition: background 0.1s;
-}
-
-.context-menu-item:hover {
-    background: #37373d;
-}
-
-.context-menu-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.context-menu-item.disabled:hover {
-  background: inherit;
-}
-
-.context-menu-item.danger {
-    color: #f56c6c;
-}
-.context-menu-item.danger:hover {
-    background: rgba(245, 108, 108, 0.1);
-}
 </style>

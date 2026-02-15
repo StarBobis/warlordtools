@@ -474,17 +474,6 @@ const rarityColorMap: Record<string, string> = {
     Unique: '#ff9f43'
 };
 
-// Backward-compatible alias; some templates may still reference `rarity`
-const rarity = computed({
-    get: () => rarityValues.value.join(' '),
-    set: (val: string) => {
-        rarityValues.value = val
-            .split(/\s+/)
-            .map(v => v.trim())
-            .filter(Boolean);
-    }
-});
-
 const hexToRgba = (hex: string, alpha: number) => {
     const clean = hex.replace('#', '');
     if (clean.length !== 6) return `rgba(255,255,255,${alpha})`;

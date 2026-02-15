@@ -445,6 +445,17 @@ const rarityColorMap: Record<string, string> = {
     Unique: '#ff9f43'
 };
 
+// Backward-compatible alias; some templates may still reference `rarity`
+const rarity = computed({
+    get: () => rarityValues.value.join(' '),
+    set: (val: string) => {
+        rarityValues.value = val
+            .split(/\s+/)
+            .map(v => v.trim())
+            .filter(Boolean);
+    }
+});
+
 const hexToRgba = (hex: string, alpha: number) => {
     const clean = hex.replace('#', '');
     if (clean.length !== 6) return `rgba(255,255,255,${alpha})`;
@@ -920,144 +931,154 @@ const removeLineAtIndex = (idx: number) => {
          
          <template v-if="localBlock.type !== 'Minimal'">
          <!-- Metadata / Comments first row -->
-         <div class="form-grid">
-             <div class="form-group start-col-span-3">
-                 <label>规则说明(建议填写)</label>
-                 <textarea 
-                    ref="rawHeaderInput"
-                    v-model="localBlock.rawHeader" 
-                    class="glass-textarea small" 
-                    rows="1" 
-                    @input="adjustRawHeaderHeight"
-                    @focus="adjustRawHeaderHeight"
-                 ></textarea>
+         <div class="section-card">
+             <div class="form-grid">
+                 <div class="form-group start-col-span-3">
+                     <label>规则说明(建议填写)</label>
+                     <textarea 
+                        ref="rawHeaderInput"
+                        v-model="localBlock.rawHeader" 
+                        class="glass-textarea small" 
+                        rows="1" 
+                        @input="adjustRawHeaderHeight"
+                        @focus="adjustRawHeaderHeight"
+                     ></textarea>
+                 </div>
              </div>
          </div>
          </template>
 
          <!-- Content: BaseType & ItemClass -->
-         <div class="form-row full-width">
-            <label>物品名称列表 (多个物品换行填写) [BaseType]</label>
-            <textarea 
-                ref="baseTypeInput"
-                v-model.lazy="baseTypes" 
-                class="glass-textarea" 
-                rows="1"
-                @input="adjustTextareaHeight"
-                @focus="adjustTextareaHeight"
-             ></textarea>
+         <div class="section-card">
+             <div class="form-row full-width">
+                <label>物品名称列表 (多个物品换行填写) [BaseType]</label>
+                <textarea 
+                    ref="baseTypeInput"
+                    v-model.lazy="baseTypes" 
+                    class="glass-textarea" 
+                    rows="1"
+                    @input="adjustTextareaHeight"
+                    @focus="adjustTextareaHeight"
+                 ></textarea>
+             </div>
+         
+             <template v-if="localBlock.type !== 'Minimal'">
+             <div class="form-row full-width" style="margin-top: 8px;">
+                <label>物品分类 (可选) [Class]</label>
+                <input v-model.lazy="itemClass" class="glass-input" />
+             </div>
+             </template>
          </div>
 
          <template v-if="localBlock.type !== 'Minimal'">
-         <div class="form-row full-width">
-            <label>物品分类 (可选) [Class]</label>
-            <input v-model.lazy="itemClass" class="glass-input" />
-         </div>
-         
          <!-- Appearance: Colors -->
-         <div class="form-grid">
-            <div class="form-group">
-                <label>文字颜色 [SetTextColor]</label>
-                <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
-                        <input type="color" :value="rgbStringToHex(textColor)" @input="e => updateColorFromHex('SetTextColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+         <div class="section-card">
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>文字颜色 [SetTextColor]</label>
+                    <div class="color-input-group">
+                        <div class="color-picker-wrapper">
+                            <div class="color-preview" :style="{ background: toCssColor(textColor) }"></div>
+                            <input type="color" :value="rgbStringToHex(textColor)" @input="e => updateColorFromHex('SetTextColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                        </div>
+                        <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
                     </div>
-                    <input v-model="textColor" class="glass-input small" placeholder="255 255 255" />
                 </div>
-            </div>
-            <div class="form-group">
-                 <label>背景颜色 [SetBackgroundColor]</label>
-                 <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
-                        <input type="color" :value="rgbStringToHex(bgColor)" @input="e => updateColorFromHex('SetBackgroundColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
-                    </div>
-                     <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
+                <div class="form-group">
+                     <label>背景颜色 [SetBackgroundColor]</label>
+                     <div class="color-input-group">
+                        <div class="color-picker-wrapper">
+                            <div class="color-preview" :style="{ background: toCssColor(bgColor) }"></div>
+                            <input type="color" :value="rgbStringToHex(bgColor)" @input="e => updateColorFromHex('SetBackgroundColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                        </div>
+                         <input v-model="bgColor" class="glass-input small" placeholder="0 0 0 240" />
+                     </div>
                  </div>
-             </div>
-             <div class="form-group">
-                 <label>边框颜色 [SetBorderColor]</label>
-                 <div class="color-input-group">
-                    <div class="color-picker-wrapper">
-                        <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
-                        <input type="color" :value="rgbStringToHex(borderColor)" @input="e => updateColorFromHex('SetBorderColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
-                    </div>
-                     <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
+                 <div class="form-group">
+                     <label>边框颜色 [SetBorderColor]</label>
+                     <div class="color-input-group">
+                        <div class="color-picker-wrapper">
+                            <div class="color-preview" :style="{ background: toCssColor(borderColor), borderColor: '#fff' }"></div>
+                            <input type="color" :value="rgbStringToHex(borderColor)" @input="e => updateColorFromHex('SetBorderColor', (e.target as HTMLInputElement).value)" class="hidden-color-input">
+                        </div>
+                         <input v-model="borderColor" class="glass-input small" placeholder="255 0 0" />
+                     </div>
                  </div>
              </div>
          </div>
          
          <!-- 4. Display: Font & Effects -->
-         <div class="form-grid four-col">
-             <div class="form-group">
-                 <label>字体大小 [SetFontSize]</label>
-                 <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
-             </div>
-             <div class="form-group start-col-span-3">
-                 <label>光柱颜色 [PlayEffect]</label>
-                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <select v-model="playEffectColor" class="glass-select small" :style="{ width: '150px', color: effectColorMap[playEffectColor] || 'inherit' }">
-                        <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
-                        <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
-                    </select>
-                    <label class="bool-check" style="margin-bottom: 0;">
-                        <input type="checkbox" v-model="playEffectTemp" />
-                        只在掉落时显示光柱 [Temp]
-                    </label>
+         <div class="section-card">
+             <div class="form-grid four-col">
+                 <div class="form-group">
+                     <label>字体大小 [SetFontSize]</label>
+                     <input type="number" v-model.lazy="fontSize" min="1" max="45" class="glass-input small" placeholder="32" />
                  </div>
-             </div>
-             
-             <!-- Minimap Icon -->
-             <div class="form-group full-width" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 4px;">
-                 <label style="margin-bottom: 8px;">小地图图标 [MinimapIcon]</label>
-                 <div style="display: flex; gap: 16px; align-items: center;">
-                     <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
-                        <input type="number" v-model.lazy="minimapIconSize" min="0" max="2" class="glass-input small" style="width: 100%; padding-right: 35px; text-align: center;" placeholder="0-2" />
-                        <span style="position: absolute; right: 8px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">大小</span>
-                    </div>
-
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">颜色:</span>
-                        <select v-model="minimapIconColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[minimapIconColor] || 'inherit' }">
+                 <div class="form-group start-col-span-3">
+                     <label>光柱颜色 [PlayEffect]</label>
+                     <div style="display: flex; gap: 8px; align-items: center;">
+                        <select v-model="playEffectColor" class="glass-select small" :style="{ width: '150px', color: effectColorMap[playEffectColor] || 'inherit' }">
+                            <option value="" style="color: #ccc; background-color: rgba(0,0,0,0.8);">None</option>
                             <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
                         </select>
-                    </div>
+                        <label class="bool-check" style="margin-bottom: 0;">
+                            <input type="checkbox" v-model="playEffectTemp" />
+                            只在掉落时显示光柱 [Temp]
+                        </label>
+                     </div>
+                 </div>
+                 
+                 <!-- Minimap Icon -->
+                 <div class="form-group full-width" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; margin-top: 4px;">
+                     <label style="margin-bottom: 8px;">小地图图标 [MinimapIcon]</label>
+                     <div style="display: flex; gap: 16px; align-items: center;">
+                         <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                            <input type="number" v-model.lazy="minimapIconSize" min="0" max="2" class="glass-input small" style="width: 100%; padding-right: 35px; text-align: center;" placeholder="0-2" />
+                            <span style="position: absolute; right: 8px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">大小</span>
+                        </div>
 
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                        <span style="font-size: 11px; color: #aaa; white-space: nowrap;">形状:</span>
-                         <select v-model="minimapIconShape" class="glass-select small" style="flex: 1;">
-                            <option v-for="s in validShapes" :key="s" :value="s">{{ s }} {{ shapeIcons[s] }}</option>
+                        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                            <span style="font-size: 11px; color: #aaa; white-space: nowrap;">颜色:</span>
+                            <select v-model="minimapIconColor" class="glass-select small" :style="{ flex: 1, color: effectColorMap[minimapIconColor] || 'inherit' }">
+                                <option v-for="c in validEffectColors" :key="c" :value="c" :style="{ color: effectColorMap[c], backgroundColor: 'rgba(0,0,0,0.8)' }">{{ c }}</option>
+                            </select>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                            <span style="font-size: 11px; color: #aaa; white-space: nowrap;">形状:</span>
+                             <select v-model="minimapIconShape" class="glass-select small" style="flex: 1;">
+                                <option v-for="s in validShapes" :key="s" :value="s">{{ s }} {{ shapeIcons[s] }}</option>
+                            </select>
+                        </div>
+                     </div>
+                 </div>
+
+                 <!-- Sounds -->
+                 <div class="form-group start-col-span-2" style="grid-column: 1 / span 2;">
+                     <label>掉落音效 [PlayAlertSound]</label>
+                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
+                            <option value="">None</option>
+                            <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
                         </select>
+                        <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
+                            <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
+                            <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
+                        </div>
+                        <label class="bool-check" style="margin-top: 0; white-space: nowrap;">
+                            <input type="checkbox" v-model="disableDropSound" />
+                            <span>关闭掉落音效 [DisableDropSound]</span>
+                        </label>
                     </div>
                  </div>
-             </div>
-
-             <!-- Sounds -->
-             <div class="form-group start-col-span-2" style="grid-column: 1 / span 2;">
-                 <label>掉落音效 [PlayAlertSound]</label>
-                 <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                    <select v-model="alertSoundId" class="glass-select small" style="flex: 1;">
-                        <option value="">None</option>
-                        <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
-                    </select>
-                    <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 80px;">
-                        <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 25px; text-align: center;" title="Volume (0-300)" />
-                        <span style="position: absolute; right: 5px; font-size: 10px; color: rgba(255,255,255,0.5); pointer-events: none;">音量</span>
-                    </div>
-                    <label class="bool-check" style="margin-top: 0; white-space: nowrap;">
-                        <input type="checkbox" v-model="disableDropSound" />
-                        <span>关闭掉落音效 [DisableDropSound]</span>
-                    </label>
-                </div>
-             </div>
-             
-             <!-- Custom Sound -->
-             <div class="form-group full-width" style="grid-column: 1 / -1;">
-                 <label>自定义掉落音效 [CustomAlertSound]</label>
-                 <div class="input-group">
-                    <input v-model="customAlertSound" class="glass-input small" placeholder='请点击右侧按钮选择音效文件' />
-                    <button @click="browseSound" class="glass-button icon" title="选择音效文件">📂</button>
+                 
+                 <!-- Custom Sound -->
+                 <div class="form-group full-width" style="grid-column: 1 / -1;">
+                     <label>自定义掉落音效 [CustomAlertSound]</label>
+                     <div class="input-group">
+                        <input v-model="customAlertSound" class="glass-input small" placeholder='请点击右侧按钮选择音效文件' />
+                        <button @click="browseSound" class="glass-button icon" title="选择音效文件">📂</button>
+                     </div>
                  </div>
              </div>
          </div>
@@ -1070,286 +1091,302 @@ const removeLineAtIndex = (idx: number) => {
 
          <!-- ================= ADVANCED RULES (Collapsible) ================= -->
          <div v-show="showAdvanced" class="conditions-container advanced-section">
-                        <!-- Rarity (dedicated row at top) -->
-                        <div class="rarity-section">
-                                <label>稀有度条件</label>
-                                <div class="rarity-row">
-                                        <div class="rarity-options">
-                                                <button
-                                                    v-for="opt in rarityOptions"
-                                                    :key="opt"
-                                                    class="rarity-chip"
-                                                    :class="{ active: rarityValues.includes(opt) }"
-                                                    :style="rarityChipStyle(opt, rarityValues.includes(opt))"
-                                                    @click.prevent="toggleRarityOption(opt)"
-                                                >
-                                                    {{ opt }}
-                                                </button>
-                                        </div>
-                                        <div class="rarity-selected" v-if="rarityValues.length">
-                                                <div v-for="(val, idx) in rarityValues" :key="val" class="tag" :style="rarityTagStyle(val)">
-                                                        <span>{{ val }}</span>
-                                                        <button class="tag-remove" @click.prevent="removeRarityValue(idx)">✕</button>
-                                                </div>
-                                        </div>
-                                        <input 
-                                            v-model="rarityInput"
-                                            class="glass-input small tag-field"
-                                            placeholder="自定义值后回车添加"
-                                            @keydown.enter.prevent="addRarityValue"
-                                            @blur="addRarityValue"
-                                        />
-                                </div>
+            <!-- Rarity (dedicated row at top) -->
+            <div class="rarity-section section-card">
+                <label>稀有度条件</label>
+                <div class="rarity-row">
+                    <div class="rarity-options">
+                        <button
+                            v-for="opt in rarityOptions"
+                            :key="opt"
+                            class="rarity-chip"
+                            :class="{ active: rarityValues.includes(opt) }"
+                            :style="rarityChipStyle(opt, rarityValues.includes(opt))"
+                            @click.prevent="toggleRarityOption(opt)"
+                        >
+                            {{ opt }}
+                        </button>
+                    </div>
+                    <div class="rarity-selected" v-if="rarityValues.length">
+                        <div v-for="(val, idx) in rarityValues" :key="val" class="tag" :style="rarityTagStyle(val)">
+                            <span>{{ val }}</span>
+                            <button class="tag-remove" @click.prevent="removeRarityValue(idx)">✕</button>
                         </div>
-            
+                    </div>
+                    <input 
+                        v-model="rarityInput"
+                        class="glass-input small tag-field"
+                        placeholder="自定义值后回车添加"
+                        @keydown.enter.prevent="addRarityValue"
+                        @blur="addRarityValue"
+                    />
+                </div>
+            </div>
+
             <!-- 1. Requirements & General -->
-            <div class="section-title">General Requirements</div>
-            <div class="form-grid four-col">
-                <div class="form-group">
-                    <label title="ItemLevel e.g. >= 85">物品等级</label>
-                    <input v-model="itemLevel" class="glass-input small" placeholder=">= 60" />
-                </div>
-                <div class="form-group">
-                    <label>掉落等级</label>
-                    <input v-model="dropLevel" class="glass-input small" placeholder=">= 1" />
-                </div>
-                <div class="form-group">
-                    <label>品质</label>
-                    <input v-model="quality" class="glass-input small" placeholder=">= 20" />
-                </div>
-                <!-- StackSize, Width, Height -->
-                <div class="form-group">
-                    <label>堆叠数量</label>
-                    <input v-model="stackSize" class="glass-input small" placeholder=">= 10" />
-                </div>
-                <div class="form-group">
-                    <label>Width</label>
-                    <input v-model="width" class="glass-input small" placeholder="<= 1" />
-                </div>
-                <div class="form-group">
-                    <label>Height</label>
-                    <input v-model="height" class="glass-input small" placeholder="<= 2" />
-                </div>
-                 <div class="form-group">
-                    <label>Identified</label>
-                    <select v-model="identified" class="glass-select small">
-                        <option value="">Ignore</option>
-                        <option value="True">True</option>
-                        <option value="False">False</option>
-                    </select>
+            <div class="section-card">
+                <div class="section-title">General Requirements</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label title="ItemLevel e.g. >= 85">物品等级</label>
+                        <input v-model="itemLevel" class="glass-input small" placeholder=">= 60" />
+                    </div>
+                    <div class="form-group">
+                        <label>掉落等级</label>
+                        <input v-model="dropLevel" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>品质</label>
+                        <input v-model="quality" class="glass-input small" placeholder=">= 20" />
+                    </div>
+                    <!-- StackSize, Width, Height -->
+                    <div class="form-group">
+                        <label>堆叠数量</label>
+                        <input v-model="stackSize" class="glass-input small" placeholder=">= 10" />
+                    </div>
+                    <div class="form-group">
+                        <label>Width</label>
+                        <input v-model="width" class="glass-input small" placeholder="<= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Height</label>
+                        <input v-model="height" class="glass-input small" placeholder="<= 2" />
+                    </div>
+                    <div class="form-group">
+                        <label>Identified</label>
+                        <select v-model="identified" class="glass-select small">
+                            <option value="">Ignore</option>
+                            <option value="True">True</option>
+                            <option value="False">False</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
             <!-- 2. Sockets & Links -->
-            <div class="section-title">Sockets</div>
-            <div class="form-grid four-col">
-                 <div class="form-group">
-                     <label>Sockets (Count)</label>
-                     <input v-model="sockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
-                 </div>
-                 <div class="form-group">
-                     <label>Linked Sockets</label>
-                     <input v-model="linkedSockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
-                 </div>
-                 <div class="form-group start-col-span-2">
-                     <label>Socket Group (Specific Colors)</label>
-                     <input v-model="socketGroup" class="glass-input small" placeholder="e.g. 3G or 4RGB or 6W" />
-                 </div>
+            <div class="section-card">
+                <div class="section-title">Sockets</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label>Sockets (Count)</label>
+                        <input v-model="sockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
+                    </div>
+                    <div class="form-group">
+                        <label>Linked Sockets</label>
+                        <input v-model="linkedSockets" class="glass-input small" placeholder="e.g. 6 or >= 5" />
+                    </div>
+                    <div class="form-group start-col-span-2">
+                        <label>Socket Group (Specific Colors)</label>
+                        <input v-model="socketGroup" class="glass-input small" placeholder="e.g. 3G or 4RGB or 6W" />
+                    </div>
+                </div>
             </div>
 
             <!-- 3. Base Defences -->
-            <div class="section-title">Base Stats (Defences)</div>
-            <div class="form-grid four-col">
-                 <div class="form-group">
-                     <label>Armour</label>
-                     <input v-model="baseArmour" class="glass-input small" placeholder="> 0" />
-                 </div>
-                 <div class="form-group">
-                     <label>Evasion</label>
-                     <input v-model="baseEvasion" class="glass-input small" placeholder="> 0" />
-                 </div>
-                 <div class="form-group">
-                     <label>Energy Shield</label>
-                     <input v-model="baseES" class="glass-input small" placeholder="> 0" />
-                 </div>
-                 <div class="form-group">
-                     <label>Base Percentile</label>
-                     <input v-model="baseDefencePct" class="glass-input small" placeholder=">= 90" />
-                 </div>
-                 <div class="form-group">
-                     <label>Ward</label>
-                     <input v-model="baseWard" class="glass-input small" placeholder="> 0" />
-                 </div>
-            </div>
-
-             <!-- 4. Influence, Enchant & Status -->
-            <div class="section-title">Enchants, Clusters & Eldritch</div>
-            <div class="form-grid four-col">
-                <div class="form-group">
-                    <label>Eater Tier (1-6)</label>
-                    <input v-model="hasEaterOfWorldsImplicit" class="glass-input small" placeholder=">= 1" />
-                </div>
-                <div class="form-group">
-                    <label>Exarch Tier (1-6)</label>
-                    <input v-model="hasSearingExarchImplicit" class="glass-input small" placeholder=">= 1" />
-                </div>
-                 <div class="form-group start-col-span-2">
-                    <label>Enchant Name</label>
-                    <input v-model.lazy="hasEnchantment" class="glass-input small" placeholder='Name / "Tier"' />
-                </div>
-                
-                <!-- Cluster Jewels -->
-                <div class="form-group start-col-span-2">
-                    <label>Cluster Passive</label>
-                    <input v-model.lazy="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
-                </div>
-                <div class="form-group">
-                    <label>Cluster Count</label>
-                    <input v-model="enchantmentPassiveNum" class="glass-input small" placeholder="<= 5" />
-                </div>
-                
-                <!-- Boolean Toggles Row -->
-                <div class="form-group checkbox-group-inline full-width">
-                    <label class="bool-check" title="Any Enchantment"><input type="checkbox" v-model="anyEnchantment" true-value="True" false-value="" /> Enchanted</label>
-                    <label class="bool-check" title="Has Implicit"><input type="checkbox" v-model="hasImplicitMod" true-value="True" false-value="" /> Implicit</label>
-                    <label class="bool-check"><input type="checkbox" v-model="mirrored" true-value="True" false-value="" /> Mirrored</label>
-                    <label class="bool-check"><input type="checkbox" v-model="fracturedItem" true-value="True" false-value="" /> Fractured</label>
-                    <label class="bool-check"><input type="checkbox" v-model="synthesisedItem" true-value="True" false-value="" /> Synth</label>
-                    <label class="bool-check"><input type="checkbox" v-model="replica" true-value="True" false-value="" /> Replica</label>
-                    <label class="bool-check"><input type="checkbox" v-model="twiceCorrupted" true-value="True" false-value="" /> Dbl Corrupt</label>
-                    <label class="bool-check"><input type="checkbox" v-model="hasCruciblePassiveTree" true-value="True" false-value="" /> Crucible</label>
-                    <label class="bool-check"><input type="checkbox" v-model="foulborn" true-value="True" false-value="" /> Foulborn</label>
+            <div class="section-card">
+                <div class="section-title">Base Stats (Defences)</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label>Armour</label>
+                        <input v-model="baseArmour" class="glass-input small" placeholder="> 0" />
+                    </div>
+                    <div class="form-group">
+                        <label>Evasion</label>
+                        <input v-model="baseEvasion" class="glass-input small" placeholder="> 0" />
+                    </div>
+                    <div class="form-group">
+                        <label>Energy Shield</label>
+                        <input v-model="baseES" class="glass-input small" placeholder="> 0" />
+                    </div>
+                    <div class="form-group">
+                        <label>Base Percentile</label>
+                        <input v-model="baseDefencePct" class="glass-input small" placeholder=">= 90" />
+                    </div>
+                    <div class="form-group">
+                        <label>Ward</label>
+                        <input v-model="baseWard" class="glass-input small" placeholder="> 0" />
+                    </div>
                 </div>
             </div>
 
-            <div class="form-grid four-col">
-                <div class="form-group checkbox-group-inline start-col-span-2">
-                     <label class="bool-check"><input type="checkbox" v-model="shaperItem" true-value="True" false-value="" /> Shaper Item</label>
-                     <label class="bool-check"><input type="checkbox" v-model="elderItem" true-value="True" false-value="" /> Elder Item</label>
+            <!-- 4. Influence, Enchant & Status -->
+            <div class="section-card">
+                <div class="section-title">Enchants, Clusters & Eldritch</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label>Eater Tier (1-6)</label>
+                        <input v-model="hasEaterOfWorldsImplicit" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Exarch Tier (1-6)</label>
+                        <input v-model="hasSearingExarchImplicit" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group start-col-span-2">
+                        <label>Enchant Name</label>
+                        <input v-model.lazy="hasEnchantment" class="glass-input small" placeholder='Name / "Tier"' />
+                    </div>
+
+                    <!-- Cluster Jewels -->
+                    <div class="form-group start-col-span-2">
+                        <label>Cluster Passive</label>
+                        <input v-model.lazy="enchantmentPassiveNode" class="glass-input small" placeholder='"Mace Damage" etc' />
+                    </div>
+                    <div class="form-group">
+                        <label>Cluster Count</label>
+                        <input v-model="enchantmentPassiveNum" class="glass-input small" placeholder="<= 5" />
+                    </div>
+
+                    <!-- Boolean Toggles Row -->
+                    <div class="form-group checkbox-group-inline full-width">
+                        <label class="bool-check" title="Any Enchantment"><input type="checkbox" v-model="anyEnchantment" true-value="True" false-value="" /> Enchanted</label>
+                        <label class="bool-check" title="Has Implicit"><input type="checkbox" v-model="hasImplicitMod" true-value="True" false-value="" /> Implicit</label>
+                        <label class="bool-check"><input type="checkbox" v-model="mirrored" true-value="True" false-value="" /> Mirrored</label>
+                        <label class="bool-check"><input type="checkbox" v-model="fracturedItem" true-value="True" false-value="" /> Fractured</label>
+                        <label class="bool-check"><input type="checkbox" v-model="synthesisedItem" true-value="True" false-value="" /> Synth</label>
+                        <label class="bool-check"><input type="checkbox" v-model="replica" true-value="True" false-value="" /> Replica</label>
+                        <label class="bool-check"><input type="checkbox" v-model="twiceCorrupted" true-value="True" false-value="" /> Dbl Corrupt</label>
+                        <label class="bool-check"><input type="checkbox" v-model="hasCruciblePassiveTree" true-value="True" false-value="" /> Crucible</label>
+                        <label class="bool-check"><input type="checkbox" v-model="foulborn" true-value="True" false-value="" /> Foulborn</label>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Corrupted</label>
-                    <select v-model="corrupted" class="glass-select small">
-                        <option value="">Ignore</option>
-                        <option value="True">Yes</option>
-                        <option value="False">No</option>
-                    </select>
+
+                <div class="form-grid four-col">
+                    <div class="form-group checkbox-group-inline start-col-span-2">
+                        <label class="bool-check"><input type="checkbox" v-model="shaperItem" true-value="True" false-value="" /> Shaper Item</label>
+                        <label class="bool-check"><input type="checkbox" v-model="elderItem" true-value="True" false-value="" /> Elder Item</label>
+                    </div>
+                    <div class="form-group">
+                        <label>Corrupted</label>
+                        <select v-model="corrupted" class="glass-select small">
+                            <option value="">Ignore</option>
+                            <option value="True">Yes</option>
+                            <option value="False">No</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Influence</label>
+                        <select v-model="hasInfluence" class="glass-select small">
+                            <option value="">Ignore</option>
+                            <option value="Shaper">Shaper</option>
+                            <option value="Elder">Elder</option>
+                            <option value="Crusader">Crusader</option>
+                            <option value="Hunter">Hunter</option>
+                            <option value="Redeemer">Redeemer</option>
+                            <option value="Warlord">Warlord</option>
+                            <option value="None">None</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Explicit Mods</label>
+                        <input v-model.lazy="hasExplicitMod" class="glass-input small" placeholder='>= 1 "Mod Name"' />
+                    </div>
+                    <div class="form-group">
+                        <label>Corrupted Mods</label>
+                        <input v-model="corruptedMods" class="glass-input small" placeholder=">= 1" />
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Influence</label>
-                    <select v-model="hasInfluence" class="glass-select small">
-                        <option value="">Ignore</option>
-                        <option value="Shaper">Shaper</option>
-                        <option value="Elder">Elder</option>
-                        <option value="Crusader">Crusader</option>
-                        <option value="Hunter">Hunter</option>
-                        <option value="Redeemer">Redeemer</option>
-                        <option value="Warlord">Warlord</option>
-                        <option value="None">None</option>
-                    </select>
-                </div>
-                 <div class="form-group">
-                     <label>Explicit Mods</label>
-                     <input v-model.lazy="hasExplicitMod" class="glass-input small" placeholder='>= 1 "Mod Name"' />
-                 </div>
-                 <div class="form-group">
-                     <label>Corrupted Mods</label>
-                     <input v-model="corruptedMods" class="glass-input small" placeholder=">= 1" />
-                 </div>
             </div>
 
             <!-- 5. Map & Gems -->
-            <div class="section-title">Maps & Gems</div>
-            <div class="form-grid four-col">
-                 <div class="form-group">
-                     <label>Map Tier</label>
-                     <input v-model="mapTier" class="glass-input small" placeholder=">= 1" />
-                 </div>
-                 <div class="form-group">
-                     <label>Area Level</label>
-                     <input v-model="areaLevel" class="glass-input small" placeholder=">= 68" />
-                 </div>
-                 <div class="form-group">
-                     <label>Gem Level</label>
-                     <input v-model="gemLevel" class="glass-input small" placeholder=">= 20" />
-                 </div>
-                  <div class="form-group">
-                     <label>Transfigured</label>
-                     <input v-model.lazy="transfiguredGem" class="glass-input small" placeholder="True / Name" />
-                 </div>
-            </div>
-            <div class="form-row checkbox-row">
-                 <label class="bool-check"><input type="checkbox" v-model="blightedMap" true-value="True" false-value="" /> Blighted Map</label>
-                 <label class="bool-check"><input type="checkbox" v-model="uberBlightedMap" true-value="True" false-value="" /> Uber Blight</label>
-                 <label class="bool-check"><input type="checkbox" v-model="shapedMap" true-value="True" false-value="" /> Shaped</label>
-                 <label class="bool-check"><input type="checkbox" v-model="elderMap" true-value="True" false-value="" /> Elder Map</label>
+            <div class="section-card">
+                <div class="section-title">Maps & Gems</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label>Map Tier</label>
+                        <input v-model="mapTier" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Area Level</label>
+                        <input v-model="areaLevel" class="glass-input small" placeholder=">= 68" />
+                    </div>
+                    <div class="form-group">
+                        <label>Gem Level</label>
+                        <input v-model="gemLevel" class="glass-input small" placeholder=">= 20" />
+                    </div>
+                    <div class="form-group">
+                        <label>Transfigured</label>
+                        <input v-model.lazy="transfiguredGem" class="glass-input small" placeholder="True / Name" />
+                    </div>
+                </div>
+                <div class="form-row checkbox-row">
+                    <label class="bool-check"><input type="checkbox" v-model="blightedMap" true-value="True" false-value="" /> Blighted Map</label>
+                    <label class="bool-check"><input type="checkbox" v-model="uberBlightedMap" true-value="True" false-value="" /> Uber Blight</label>
+                    <label class="bool-check"><input type="checkbox" v-model="shapedMap" true-value="True" false-value="" /> Shaped</label>
+                    <label class="bool-check"><input type="checkbox" v-model="elderMap" true-value="True" false-value="" /> Elder Map</label>
+                </div>
             </div>
             
             <!-- 6. Special / PoE 2 -->
-             <div class="section-title">Special & Future (PoE 2)</div>
-            <div class="form-grid four-col">
-                <div class="form-group">
-                    <label>Waystone Tier</label>
-                    <input v-model="waystoneTier" class="glass-input small" placeholder=">= 1" />
-                </div>
-                 <div class="form-group">
-                    <label>Unidentified Tier</label>
-                    <input v-model="unidentifiedItemTier" class="glass-input small" placeholder=">= 1" />
-                </div>
-                 <div class="form-group">
-                    <label>Archnemesis Mod</label>
-                    <input v-model.lazy="archnemesisMod" class="glass-input small" placeholder='Name' />
-                </div>
-                 <div class="form-group">
-                    <label>Scourge Tier</label>
-                    <input v-model="scourged" class="glass-input small" placeholder=">= 1" />
-                </div>
-                <!-- Boolean Toggles Row -->
-                <div class="form-group checkbox-group-inline full-width">
-                     <label class="bool-check"><input type="checkbox" v-model="hasVaalUniqueMod" true-value="True" false-value="" /> Vaal Unique Mod</label>
-                     <label class="bool-check"><input type="checkbox" v-model="isVaalUnique" true-value="True" false-value="" /> Is Vaal Unique</label>
+            <div class="section-card">
+                <div class="section-title">Special & Future (PoE 2)</div>
+                <div class="form-grid four-col">
+                    <div class="form-group">
+                        <label>Waystone Tier</label>
+                        <input v-model="waystoneTier" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Unidentified Tier</label>
+                        <input v-model="unidentifiedItemTier" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Archnemesis Mod</label>
+                        <input v-model.lazy="archnemesisMod" class="glass-input small" placeholder='Name' />
+                    </div>
+                    <div class="form-group">
+                        <label>Scourge Tier</label>
+                        <input v-model="scourged" class="glass-input small" placeholder=">= 1" />
+                    </div>
+                    <!-- Boolean Toggles Row -->
+                    <div class="form-group checkbox-group-inline full-width">
+                        <label class="bool-check"><input type="checkbox" v-model="hasVaalUniqueMod" true-value="True" false-value="" /> Vaal Unique Mod</label>
+                        <label class="bool-check"><input type="checkbox" v-model="isVaalUnique" true-value="True" false-value="" /> Is Vaal Unique</label>
+                    </div>
                 </div>
             </div>
             
             <!-- 7. Custom / Other Rules -->
-            <div class="section-title">Other Rules (Raw Edit)</div>
-            <div class="custom-rules-list">
-                <div v-for="(line, idx) in localBlock.lines" :key="idx">
-                    <div v-if="!knownKeys.has(line.key)" class="custom-rule-row">
-                         <input v-model="line.key" class="glass-input small key-input" placeholder="Key" />
-                         <select v-model="line.operator" class="glass-select small op-select">
-                            <option :value="undefined"></option>
-                            <option value="=">=</option>
-                            <option value="==">==</option>
-                            <option value=">">&gt;</option>
-                            <option value="<">&lt;</option>
-                            <option value=">=">&gt;=</option>
-                            <option value="<=">&lt;=</option>
-                         </select>
-                         <input 
-                            :value="line.values.join(' ')" 
-                            @input="(e: Event) => line.values = (e.target as HTMLInputElement).value.split(' ')"
-                            class="glass-input small value-input" 
-                            placeholder="Value(s)" 
-                         />
-                         <button @click="removeLineAtIndex(idx)" class="glass-button icon danger">🗑️</button>
+            <div class="section-card">
+                <div class="section-title">Other Rules (Raw Edit)</div>
+                <div class="custom-rules-list">
+                    <div v-for="(line, idx) in localBlock.lines" :key="idx">
+                        <div v-if="!knownKeys.has(line.key)" class="custom-rule-row">
+                            <input v-model="line.key" class="glass-input small key-input" placeholder="Key" />
+                            <select v-model="line.operator" class="glass-select small op-select">
+                                <option :value="undefined"></option>
+                                <option value="=">=</option>
+                                <option value="==">==</option>
+                                <option value=">">&gt;</option>
+                                <option value="<">&lt;</option>
+                                <option value=">=">&gt;=</option>
+                                <option value="<=">&lt;=</option>
+                            </select>
+                            <input 
+                                :value="line.values.join(' ')" 
+                                @input="(e: Event) => line.values = (e.target as HTMLInputElement).value.split(' ')"
+                                class="glass-input small value-input" 
+                                placeholder="Value(s)" 
+                            />
+                            <button @click="removeLineAtIndex(idx)" class="glass-button icon danger">🗑️</button>
+                        </div>
                     </div>
+                    <button @click="addCustomRule" class="glass-button small full-width dashed">+ Add Custom Rule</button>
                 </div>
-                <button @click="addCustomRule" class="glass-button small full-width dashed">+ Add Custom Rule</button>
             </div>
             
             <!-- End of Advanced Section -->
-            <div class="section-title">Options</div>
-            <div class="form-row checkbox-row">
-                 <label class="checkbox-label">
-                     <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
-                     <span>Quiet if Alert</span>
-                 </label>
-                 <label class="checkbox-label">
-                     <input type="checkbox" v-model="shouldContinue" />
-                     <span>Continue (Match Next)</span>
-                 </label>
-             </div>
+            <div class="section-card">
+                <div class="section-title">Options</div>
+                <div class="form-row checkbox-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" v-model="disableDropSoundIfAlertSound" />
+                        <span>Quiet if Alert</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" v-model="shouldContinue" />
+                        <span>Continue (Match Next)</span>
+                    </label>
+                </div>
+            </div>
          </div>
          </template>
 
@@ -1642,10 +1679,17 @@ label {
     flex-direction: column;
     gap: 6px;
     padding: 8px;
+}
+
+.section-card {
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 6px;
-    margin-bottom: 4px;
+    padding: 10px 10px 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .glass-select.small {

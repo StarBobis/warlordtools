@@ -288,6 +288,24 @@ const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
     });
 };
 
+const openContainingFolderForTarget = async () => {
+    // Close menu
+    fileContextMenu.visible = false;
+     if (activeCloseMenu) {
+        window.removeEventListener('click', activeCloseMenu);
+        window.removeEventListener('contextmenu', activeCloseMenu);
+        activeCloseMenu = null;
+    }
+
+    if (!fileContextMenu.targetFile) return;
+    try {
+        const dir = fileContextMenu.targetFile.path.replace(/[/\\][^/\\]+$/, '');
+        await invoke('open_folder_cmd', { path: dir });
+    } catch (e) {
+        alert(`打开失败: ${e}`);
+    }
+};
+
   const promptRename = async () => {
     // Close the context menu first
     fileContextMenu.visible = false;
@@ -1022,6 +1040,9 @@ onActivated(async () => {
         class="context-menu glass-menu" 
         :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }"
        >
+        <div class="context-menu-item" @click.stop="openContainingFolderForTarget">
+          <span>📂 打开所在文件夹</span>
+        </div>
         <div class="context-menu-item" @click.stop="promptRename">
           <span>✏️ 重命名文件</span>
         </div>

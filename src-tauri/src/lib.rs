@@ -79,6 +79,21 @@ fn delete_filter_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn delete_filter_folder(path: String) -> Result<(), String> {
+    fs::remove_dir_all(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_filter_folder(path: String) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn path_exists(path: String) -> Result<bool, String> {
+    Ok(Path::new(&path).exists())
+}
+
+#[tauri::command]
 fn rename_filter_file(old_path: String, new_path: String) -> Result<(), String> {
     let new_path_ref = Path::new(&new_path);
 
@@ -136,6 +151,9 @@ pub fn run() {
             create_overlay_window,
             copy_sound_file,
             delete_filter_file,
+            delete_filter_folder,
+            create_filter_folder,
+            path_exists,
             rename_filter_file
         ])
         .run(tauri::generate_context!())

@@ -12,6 +12,12 @@ interface FilterFile {
   path: string;
 }
 
+type ContextEntry = {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+};
+
 // Global View State Persistence (Session-based)
 // Maps filePath -> { expandedKey: string | null, scrollY: number }
 const globalViewState = reactive<Record<string, { expandedKey: string | null, scrollY: number }>>({});
@@ -236,7 +242,7 @@ const fileContextMenu = reactive({
     visible: false,
     x: 0,
     y: 0,
-    targetFile: null as FilterFile | null
+  targetEntry: null as ContextEntry | null
 });
 
 const fileContextMenuRef = ref<HTMLElement | null>(null);
@@ -244,7 +250,7 @@ const fileContextMenuRef = ref<HTMLElement | null>(null);
 // Global handler reference to ensure proper cleanup
 let activeCloseMenu: (() => void) | null = null;
 
-const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
+const onFileContextMenu = (event: MouseEvent, node: FileNode) => {
     // Cleanup previous menu listeners immediately
     if (activeCloseMenu) {
         window.removeEventListener('click', activeCloseMenu);
@@ -254,7 +260,11 @@ const onFileContextMenu = (event: MouseEvent, file: FilterFile) => {
 
     fileContextMenu.x = event.clientX;
     fileContextMenu.y = event.clientY;
-    fileContextMenu.targetFile = file;
+  fileContextMenu.targetEntry = {
+    name: node.name,
+    path: node.path,
+    type: node.type
+  };
     fileContextMenu.visible = true;
 
     // Boundary check
@@ -297,10 +307,13 @@ const openContainingFolderForTarget = async () => {
         activeCloseMenu = null;
     }
 
-    if (!fileContextMenu.targetFile) return;
+  if (!fileContextMenu.targetEntry) return;
     try {
-        const dir = fileContextMenu.targetFile.path.replace(/[/\\][^/\\]+$/, '');
-        await invoke('open_folder_cmd', { path: dir });
+    const target = fileContextMenu.targetEntry;
+    const dir = target.type === 'file'
+      ? target.path.replace(/[/\\][^/\\]+$/, '')
+      : target.path;
+    await invoke('open_folder_cmd', { path: dir });
     } catch (e) {
         alert(`打开失败: ${e}`);
     }
@@ -316,8 +329,8 @@ const openContainingFolderForTarget = async () => {
       activeCloseMenu = null;
     }
 
-    if (!fileContextMenu.targetFile) return;
-    const targetFile = fileContextMenu.targetFile;
+    if (!fileContextMenu.targetEntry || fileContextMenu.targetEntry.type !== 'file') return;
+    const targetFile = fileContextMenu.targetEntry;
 
     const suggested = targetFile.name.replace(/\.filter$/i, '');
     const inputName = prompt("请输入新的过滤器名称 (.filter):", suggested);
@@ -352,7 +365,7 @@ const openContainingFolderForTarget = async () => {
     }
   };
 
-const promptDelete = async () => {
+const promptDeleteFile = async () => {
     // 1. Hide menu immediately
     fileContextMenu.visible = false;
     
@@ -363,8 +376,8 @@ const promptDelete = async () => {
         activeCloseMenu = null;
     }
 
-    if (!fileContextMenu.targetFile) return;
-    const targetFile = fileContextMenu.targetFile;
+    if (!fileContextMenu.targetEntry || fileContextMenu.targetEntry.type !== 'file') return;
+    const targetFile = fileContextMenu.targetEntry;
 
     try {
         const yes = await ask(`确定要删除过滤器 "${targetFile.name}" 吗？\n此操作无法撤销。`, {
@@ -392,15 +405,56 @@ const promptDelete = async () => {
     }
 };
 
+    const promptDeleteFolder = async () => {
+      fileContextMenu.visible = false;
+      if (activeCloseMenu) {
+        window.removeEventListener('click', activeCloseMenu);
+        window.removeEventListener('contextmenu', activeCloseMenu);
+        activeCloseMenu = null;
+      }
+
+      if (!fileContextMenu.targetEntry || fileContextMenu.targetEntry.type !== 'dir') return;
+      const targetFolder = fileContextMenu.targetEntry;
+
+      try {
+        const yes = await ask(`确定要删除文件夹 "${targetFolder.name}" 及其所有过滤器吗？\n此操作无法撤销。`, {
+          title: '确认删除文件夹',
+          kind: 'warning',
+          okLabel: '删除文件夹',
+          cancelLabel: '取消'
+        });
+
+        if (!yes) return;
+
+        await invoke('delete_filter_folder', { path: targetFolder.path });
+
+        // Clear selection if current file is inside the deleted folder
+        const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+        const deletedPrefix = normalize(targetFolder.path);
+        if (selectedFile.value && normalize(selectedFile.value.path).startsWith(deletedPrefix)) {
+          selectedFile.value = null;
+          parsedBlocks.value = [];
+        }
+
+        await scanFilters();
+      } catch (e) {
+        console.error('Delete folder failed', e);
+        alert(`操作失败: ${e}`);
+      }
+    };
+
 const openCreateDialog = async () => {
     const inputName = prompt("请输入新过滤器名称 (.filter):", "NewFilter");
     if (!inputName || !inputName.trim()) return;
 
     // Ensure .filter extension
-    let name = inputName.trim();
-    if (!name.toLowerCase().endsWith('.filter')) {
-        name += '.filter';
-    }
+  let rawName = inputName.trim();
+  if (rawName.toLowerCase().endsWith('.filter')) {
+    rawName = rawName.slice(0, -7); // remove extension for folder/file base name
+  }
+
+  const baseName = rawName || 'NewFilter';
+  const fileName = `${baseName}.filter`;
     
     const settings = configManager.getSettings();
     if (!settings.filterStoragePath) {
@@ -408,18 +462,29 @@ const openCreateDialog = async () => {
          return;
     }
     
-    // Construct full path
-    const path = `${settings.filterStoragePath}\\${name}`;
+    // Construct folder + file path
+    const sep = settings.filterStoragePath.includes('\\') ? '\\' : '/';
+    const folderPath = `${settings.filterStoragePath}${sep}${baseName}`;
+    const path = `${folderPath}${sep}${fileName}`;
     
     try {
-        // Create empty filter or simple template
-        const template = `# Type: Custom\n# Name: ${name}\n\nShow\n    SetFontSize 32\n    SetBorderColor 255 255 255\n`;
-        await invoke("write_file_content", { path, content: template });
+      // Guard: avoid overwriting existing file
+      const exists = await invoke<boolean>('path_exists', { path });
+      if (exists) {
+        alert('同名过滤器已存在，请使用其他名称');
+        return;
+      }
+
+      // Ensure folder exists then create file
+      await invoke('create_filter_folder', { path: folderPath });
+
+      const template = `# Type: Custom\n# Name: ${fileName}\n\nShow\n    SetFontSize 32\n    SetBorderColor 255 255 255\n`;
+      await invoke("write_file_content", { path, content: template });
         
         await scanFilters();
         
         // Auto select new file
-        const newFile = filterFiles.value.find(f => f.name === name);
+      const newFile = filterFiles.value.find(f => f.path === path);
         if (newFile) {
             selectFile(newFile);
         }
@@ -442,7 +507,15 @@ const buildFileTree = (paths: string[], rootPath: string | undefined): FileNode[
     }
 
     const rootNodes: FileNode[] = [];
-    const normalizedRoot = rootPath.replace(/\\/g, '/');
+  const normalizedRoot = rootPath.replace(/\\/g, '/');
+  const separator = rootPath.includes('\\') ? '\\' : '/';
+  const sepForRegex = separator === '\\' ? '\\\\' : separator;
+  const trimmedRoot = rootPath.replace(new RegExp(`[${sepForRegex}]+$`), '');
+
+  const buildDirPath = (segments: string[]) => {
+    const joined = segments.join(separator);
+    return trimmedRoot ? `${trimmedRoot}${separator}${joined}` : joined;
+  };
 
     paths.forEach(fullPath => {
         const normalizedPath = fullPath.replace(/\\/g, '/');
@@ -457,11 +530,17 @@ const buildFileTree = (paths: string[], rootPath: string | undefined): FileNode[
         const parts = relative.split('/');
         let currentLevel = rootNodes;
         
+        const currentParts: string[] = [];
         parts.forEach((part, index) => {
             const isLast = index === parts.length - 1;
+          currentParts.push(part);
+          const nodePath = isLast ? fullPath : buildDirPath(currentParts);
             const existing = currentLevel.find(n => n.name === part);
             
             if (existing) {
+            if (existing.type === 'dir' && !existing.path) {
+              existing.path = nodePath;
+            }
                 if (isLast) {
                     // Should not happen if folder name is same as file name?
                     // But assume folder structure is clean
@@ -485,11 +564,11 @@ const buildFileTree = (paths: string[], rootPath: string | undefined): FileNode[
                 // Actually, we can just defer path setting for folders or use what we parsed.
                 
                 const newNode: FileNode = {
-                    name: part,
-                    path: isLast ? fullPath : '', // We'll patch dir path if needed, or ignore
-                    type: nodeType,
-                    children: [],
-                    expanded: false
+                  name: part,
+                  path: nodePath,
+                  type: nodeType,
+                  children: [],
+                  expanded: false
                 };
                 
                 currentLevel.push(newNode);
@@ -927,12 +1006,7 @@ onActivated(async () => {
             :selectedPath="selectedFile?.path"
             @select="handleNodeSelect"
             @toggle="handleNodeToggle"
-            @context-menu="(e, n) => {
-                if(n.type === 'file') {
-                    // map Node back to FilterFile structure expected by context menu
-                    onFileContextMenu(e, { name: n.name, path: n.path });
-                }
-            }"
+          @context-menu="(e, n) => onFileContextMenu(e, n)"
         />
       </div>
     </div>
@@ -1040,13 +1114,28 @@ onActivated(async () => {
         :style="{ top: fileContextMenu.y + 'px', left: fileContextMenu.x + 'px' }"
        >
         <div class="context-menu-item" @click.stop="openContainingFolderForTarget">
-          <span>📂 打开所在文件夹</span>
+          <span>{{ fileContextMenu.targetEntry?.type === 'file' ? '📂 打开所在文件夹' : '📂 打开此文件夹' }}</span>
         </div>
-        <div class="context-menu-item" @click.stop="promptRename">
+        <div 
+          v-if="fileContextMenu.targetEntry?.type === 'file'" 
+          class="context-menu-item" 
+          @click.stop="promptRename"
+        >
           <span>✏️ 重命名文件</span>
         </div>
-          <div class="context-menu-item danger" @click.stop="promptDelete">
+          <div 
+            v-if="fileContextMenu.targetEntry?.type === 'file'" 
+            class="context-menu-item danger" 
+            @click.stop="promptDeleteFile"
+          >
               <span>🗑️ 删除文件 (Delete)</span>
+          </div>
+          <div 
+            v-else 
+            class="context-menu-item danger" 
+            @click.stop="promptDeleteFolder"
+          >
+              <span>🗑️ 删除此文件夹</span>
           </div>
        </div>
      </Teleport>

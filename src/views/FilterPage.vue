@@ -519,7 +519,8 @@ const addNewBlock = () => {
         priority: 'Normal',
         startLine: 0, // Default to top, will be recalculated on save/view switch
         rawHeader: 'Custom - New Rule - Normal',
-        lines: []
+      inlineComments: [],
+      lines: []
     });
 };
 
@@ -586,6 +587,7 @@ const createBlockFromAttributes = (blockId: string) => {
     name: source.name,
     priority: source.priority,
     rawHeader: source.rawHeader,
+    inlineComments: [],
     lines: cloneNonBaseLines(source)
   };
 

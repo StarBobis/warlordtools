@@ -18,8 +18,11 @@ export interface FilterBlock {
     priority?: string; // e.g. "优先级1"
     
     // Fallback for non-standard headers
-    rawHeader: string; 
-    
+    rawHeader: string; // User-entered comment text (no leading #), may span multiple lines
+
+    // Inline comments inside the block body, paired with positions for stable round-trip
+    inlineComments: Array<{ before: number; text: string }>;
+
     lines: FilterLine[]; 
 }
 
@@ -47,17 +50,18 @@ export class FilterParser {
 
             // Comment Processing
             if (trimmedLine.startsWith('#')) {
-                // Indented comments are likely block-internal comments (e.g., specific rule explanations)
-                if (currentBlock && isIndented) {
-                    continue; // Ignore internal comments for now to keep things clean
-                }
-                
-                if (headerStartLine === -1) {
-                    headerStartLine = i;
+                // Header comments (before a block starts)
+                if (!currentBlock || !isIndented) {
+                    if (headerStartLine === -1) {
+                        headerStartLine = i;
+                    }
+                    // Keep raw text without leading '#'
+                    currentHeaderLines.push(trimmedLine.replace(/^#\s?/, ''));
+                    continue;
                 }
 
-                // Top-level comments are headers for the NEXT block
-                currentHeaderLines.push(trimmedLine.substring(1).trim());
+                // Inline comment inside a block; preserve with position information
+                currentBlock.inlineComments.push({ before: currentBlock.lines.length, text: rawLine.trimEnd() });
                 continue;
             }
 
@@ -108,6 +112,7 @@ export class FilterParser {
                     name,
                     priority,
                     rawHeader: currentHeaderLines.join('\n'), // Store full header just in case
+                    inlineComments: [],
                     lines: []
                 };
                 
@@ -153,35 +158,45 @@ export class FilterParser {
             // Update the block's start position to match the generated matches
             block.startLine = currentLine;
 
-            // Reconstruct Header
-            if (block.name) {
+            // Reconstruct Header: always honor rawHeader (textarea) first
+            const headerLines: string[] = [];
+
+            if (block.rawHeader && block.rawHeader.trim()) {
+                headerLines.push(...block.rawHeader.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0));
+            } else if (block.name) {
                 let headerLine = "";
                 if (block.category) {
-                     // Standard Format Reconstruction
-                     headerLine = `${block.category} - ${block.name}`;
-                     if (block.priority) headerLine += ` - ${block.priority}`;
+                    headerLine = `${block.category} - ${block.name}`;
+                    if (block.priority) headerLine += ` - ${block.priority}`;
                 } else {
-                    // Fallback or simple header
                     headerLine = block.name;
                 }
-                const line = `# ${headerLine}\n`;
-                output += line;
-                currentLine += 1;
-            } else if (block.rawHeader) {
-                // Fallback to raw if logic failed
-                const comments = block.rawHeader.split('\n');
-                comments.forEach(c => {
-                    output += `# ${c}\n`;
-                    currentLine += 1;
-                });
+                headerLines.push(headerLine);
             }
+
+            headerLines.forEach((h) => {
+                const line = h.startsWith('#') ? h : `# ${h}`;
+                output += `${line}\n`;
+                currentLine += 1;
+            });
             
             // Block Type
             output += `${block.type}\n`;
             currentLine += 1;
 
+            const inlineComments = block.inlineComments ?? [];
+
             // Lines
-            for (const line of block.lines) {
+            for (let idx = 0; idx < block.lines.length; idx++) {
+                // Emit inline comments that appear before this line index
+                const beforeComments = inlineComments.filter(c => c.before === idx);
+                beforeComments.forEach(c => {
+                    const text = c.text.trim().startsWith('#') ? c.text.trimEnd() : `# ${c.text.trimEnd()}`;
+                    output += `    ${text}\n`;
+                    currentLine += 1;
+                });
+
+                const line = block.lines[idx];
                 let lineStr = `    ${line.key}`;
                 if (line.operator) {
                     lineStr += ` ${line.operator}`;
@@ -195,6 +210,14 @@ export class FilterParser {
                 output += `${lineStr}\n`;
                 currentLine += 1;
             }
+
+            // Trailing inline comments (those targeting end of block)
+            const trailingComments = inlineComments.filter(c => c.before >= block.lines.length);
+            trailingComments.forEach(c => {
+                const text = c.text.trim().startsWith('#') ? c.text.trimEnd() : `# ${c.text.trimEnd()}`;
+                output += `    ${text}\n`;
+                currentLine += 1;
+            });
             
             output += "\n";
             currentLine += 1;

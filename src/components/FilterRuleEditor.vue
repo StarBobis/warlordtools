@@ -844,9 +844,26 @@ const removeLineAtIndex = (idx: number) => {
          
          <!-- ================= COMMON RULES (Always Visible) ================= -->
          
-         <!-- 1. Content: BaseType & ItemClass -->
+         <template v-if="localBlock.type !== 'Minimal'">
+         <!-- Metadata / Comments first row -->
+         <div class="form-grid">
+             <div class="form-group start-col-span-3">
+                 <label>规则说明(建议填写)</label>
+                 <textarea 
+                    ref="rawHeaderInput"
+                    v-model="localBlock.rawHeader" 
+                    class="glass-textarea small" 
+                    rows="1" 
+                    @input="adjustRawHeaderHeight"
+                    @focus="adjustRawHeaderHeight"
+                 ></textarea>
+             </div>
+         </div>
+         </template>
+
+         <!-- Content: BaseType & ItemClass -->
          <div class="form-row full-width">
-            <label>物品名称 (多个物品以英文逗号分隔) [BaseType]</label>
+            <label>物品名称列表 (多个物品换行填写) [BaseType]</label>
             <textarea 
                 ref="baseTypeInput"
                 v-model.lazy="baseTypes" 
@@ -863,22 +880,7 @@ const removeLineAtIndex = (idx: number) => {
             <input v-model.lazy="itemClass" class="glass-input" />
          </div>
          
-         <!-- 2. Metadata / Comments Description -->
-         <div class="form-grid">
-             <div class="form-group start-col-span-3">
-                 <label>额外注释与说明 (可选)</label>
-                 <textarea 
-                    ref="rawHeaderInput"
-                    v-model="localBlock.rawHeader" 
-                    class="glass-textarea small" 
-                    rows="1" 
-                    @input="adjustRawHeaderHeight"
-                    @focus="adjustRawHeaderHeight"
-                 ></textarea>
-             </div>
-         </div>
-
-         <!-- 3. Appearance: Colors -->
+         <!-- Appearance: Colors -->
          <div class="form-grid">
             <div class="form-group">
                 <label>文字颜色 [SetTextColor]</label>

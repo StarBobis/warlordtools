@@ -138,23 +138,18 @@ const baseTypes = computed({
 });
 
 const baseTypeInput = ref<HTMLTextAreaElement | null>(null);
+const classInput = ref<HTMLTextAreaElement | null>(null);
 const rawHeaderInput = ref<HTMLTextAreaElement | null>(null);
 
-const adjustTextareaHeight = () => {
-    const el = baseTypeInput.value;
-    if (el) {
-        el.style.height = 'auto'; // Shrink to fit content first
-        el.style.height = (el.scrollHeight + 2) + 'px'; // Expand to needed height
-    }
+const setAutoHeight = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight + 2) + 'px';
 };
 
-const adjustRawHeaderHeight = () => {
-    const el = rawHeaderInput.value;
-    if (el) {
-        el.style.height = 'auto';
-        el.style.height = (el.scrollHeight + 2) + 'px';
-    }
-};
+const adjustTextareaHeight = () => setAutoHeight(baseTypeInput.value);
+const adjustClassTextareaHeight = () => setAutoHeight(classInput.value);
+const adjustRawHeaderHeight = () => setAutoHeight(rawHeaderInput.value);
 
 watch(baseTypes, () => {
     nextTick(adjustTextareaHeight);
@@ -169,11 +164,13 @@ watch(isExpanded, (val) => {
         // Need a slight delay or nextTick for v-if to render the element
         nextTick(() => {
             adjustTextareaHeight();
+            adjustClassTextareaHeight();
             adjustRawHeaderHeight();
         });
         // Extra safety delay for transitions
         setTimeout(() => {
             adjustTextareaHeight();
+            adjustClassTextareaHeight();
             adjustRawHeaderHeight();
         }, 100);
     }
@@ -190,8 +187,40 @@ watch(() => localBlock.value.type, (val) => {
 
 
 const itemClass = computed({
-    get: () => getLineValue('Class'),
-    set: (v) => setLineValue('Class', v, true)
+    get: () => {
+        const line = localBlock.value.lines.find(l => l.key.toLowerCase() === 'class');
+        if (!line) return '';
+        return line.values.map(v => v.replace(/^"|"$/g, '').trim()).join('\n');
+    },
+    set: (val: string) => {
+        const entries = val
+            .split(/\r?\n/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(s => `"${s}"`);
+
+        const idx = findLineIndex('Class');
+
+        if (idx >= 0) {
+            if (entries.length === 0) {
+                localBlock.value.lines.splice(idx, 1);
+            } else {
+                localBlock.value.lines[idx].values = entries;
+                localBlock.value.lines[idx].key = 'Class';
+            }
+        } else if (entries.length > 0) {
+            localBlock.value.lines.push({
+                key: 'Class',
+                operator: undefined,
+                values: entries,
+                raw: ''
+            });
+        }
+    }
+});
+
+watch(itemClass, () => {
+    nextTick(adjustClassTextareaHeight);
 });
 
 const alertSoundId = computed({
@@ -934,7 +963,7 @@ const removeLineAtIndex = (idx: number) => {
          <div class="section-card">
              <div class="form-grid">
                  <div class="form-group start-col-span-3">
-                     <label>规则说明(建议填写)</label>
+                     <label>规则说明</label>
                      <textarea 
                         ref="rawHeaderInput"
                         v-model="localBlock.rawHeader" 
@@ -951,7 +980,7 @@ const removeLineAtIndex = (idx: number) => {
          <!-- Content: BaseType & ItemClass -->
          <div class="section-card">
              <div class="form-row full-width">
-                <label>物品名称列表 (多个物品换行填写) [BaseType]</label>
+                <label>物品名称列表 (多个名称换行填写) [BaseType]</label>
                 <textarea 
                     ref="baseTypeInput"
                     v-model.lazy="baseTypes" 
@@ -964,8 +993,15 @@ const removeLineAtIndex = (idx: number) => {
          
              <template v-if="localBlock.type !== 'Minimal'">
              <div class="form-row full-width" style="margin-top: 8px;">
-                <label>物品分类 (可选) [Class]</label>
-                <input v-model.lazy="itemClass" class="glass-input" />
+                <label>物品分类列表 (多个分类换行填写) [Class]</label>
+                <textarea 
+                    ref="classInput"
+                    v-model.lazy="itemClass"
+                    class="glass-textarea"
+                    rows="1"
+                    @input="adjustClassTextareaHeight"
+                    @focus="adjustClassTextareaHeight"
+                ></textarea>
              </div>
              </template>
          </div>

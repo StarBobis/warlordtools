@@ -1452,6 +1452,7 @@ const removeLineAtIndex = (idx: number) => {
     align-items: center;
     gap: 12px;
     flex: 1;
+    min-width: 0;
 }
 
 .status-indicator {
@@ -1478,15 +1479,14 @@ const removeLineAtIndex = (idx: number) => {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    white-space: nowrap;
-    overflow: hidden;
+    white-space: normal;
+    word-break: break-word;
 }
 
 .header-line {
     display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
 }
 
 .header-line.primary {

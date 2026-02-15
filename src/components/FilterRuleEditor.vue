@@ -15,6 +15,7 @@ const emit = defineEmits<{
     (e: 'focus', id: string): void;
     (e: 'update:expanded', val: boolean): void;
     (e: 'open-ctx-menu', event: MouseEvent): void;
+    (e: 'start-drag', event: MouseEvent, id: string): void;
 }>();
 
 const isExpanded = computed({
@@ -765,8 +766,11 @@ const baseLabel = computed(() => {
     return base || cls || name || raw || 'Untitled Rule';
 });
 
+const primaryLabel = computed(() => commentFirstLine.value || baseLabel.value || 'Untitled Rule');
+const secondaryLabel = computed(() => commentFirstLine.value ? baseLabel.value : '');
+
 const titleLabel = computed(() => {
-    const parts = [baseLabel.value, commentFirstLine.value].filter(Boolean);
+    const parts = [primaryLabel.value, secondaryLabel.value].filter(Boolean);
     return parts.join(' | ');
 });
 
@@ -807,13 +811,18 @@ const removeLineAtIndex = (idx: number) => {
 <template>
   <div class="filter-block-card" :class="{ expanded: isExpanded }">
     <!-- Header Summary -->
-    <div class="block-header" @click="toggleExpand" @contextmenu.prevent="onContextMenu">
+        <div 
+            class="block-header"
+            @click="toggleExpand"
+            @contextmenu.prevent="onContextMenu"
+            @mousedown="emit('start-drag', $event, localBlock.id)"
+        >
       <div class="header-left">
         <div class="status-indicator" :class="localBlock.type.toLowerCase()"></div>
         <div class="header-info">
             <span class="header-title" :title="titleLabel">
-                <span class="header-line primary">{{ baseLabel }}</span>
-                <span v-if="commentFirstLine" class="header-line secondary">{{ commentFirstLine }}</span>
+                <span class="header-line primary">{{ primaryLabel }}</span>
+                <span v-if="secondaryLabel" class="header-line secondary">{{ secondaryLabel }}</span>
             </span>
             <div class="preview-tags" v-if="!isExpanded">
                 {{ [itemLevel ? 'Lvl ' + itemLevel : '', rarity].filter(Boolean).join(', ') }}
@@ -1299,6 +1308,7 @@ const removeLineAtIndex = (idx: number) => {
 .status-indicator.show { background: #67c23a; box-shadow: 0 0 4px #67c23a; }
 .status-indicator.hide { background: #f56c6c; }
 
+
 .header-info {
     flex: 1;
     display: flex;
@@ -1324,13 +1334,13 @@ const removeLineAtIndex = (idx: number) => {
 }
 
 .header-line.primary {
-    font-size: 14px;
-    color: #eee;
+    font-size: 15px;
+    color: #f2f2f2;
 }
 
 .header-line.secondary {
-    font-size: 11px;
-    color: #aaa;
+    font-size: 12px;
+    color: #b8b8b8;
 }
 
 .preview-tags {

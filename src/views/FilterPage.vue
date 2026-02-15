@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, nextTick, reactive, computed } from "vue";
+import { ref, onMounted, onActivated, onUnmounted, nextTick, reactive, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { configManager } from "../utils/ConfigManager";
@@ -24,9 +24,20 @@ const saveStatus = ref<string>("");
 const currentViewMode = ref<'visual' | 'code'>('visual');
 const rawContent = ref<string>("");
 const visualListRef = ref<HTMLElement | null>(null);
+const blocksListRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
 // Buffer for copying attributes (non-BaseType lines)
 const clipboardLines = ref<FilterLine[]>([]);
+
+// Drag-reorder state (similar approach as TitleBar long-press drag)
+const blockDrag = reactive({
+  isDragging: false,
+  draggingId: null as string | null,
+  ghostPos: { x: 0, y: 0 },
+  placeholderIndex: -1
+});
+let blockDragTimer: number | null = null;
+const blockDragDelay = 220; // ms
 
 
 const filteredBlocks = computed(() => {
@@ -55,6 +66,11 @@ const filteredBlocks = computed(() => {
       return contentMatch;
     });
 });
+
+  const draggingLabel = computed(() => {
+    const blk = parsedBlocks.value.find(b => b.id === blockDrag.draggingId);
+    return blk?.name || blk?.rawHeader || '拖动规则';
+  });
 
 const getBlockKey = (block: FilterBlock) => {
     // Return unique ID to prevent collisions between identical blocks
@@ -104,6 +120,74 @@ const saveVisualScroll = () => {
         }
         globalViewState[path].scrollY = visualListRef.value.scrollTop;
     }
+};
+
+// Drag helpers
+const cancelBlockDragTimer = () => {
+  if (blockDragTimer !== null) {
+    clearTimeout(blockDragTimer);
+    blockDragTimer = null;
+  }
+};
+
+const onBlockDragStart = (event: MouseEvent, blockId: string) => {
+  if (currentViewMode.value !== 'visual') return;
+
+  blockDrag.ghostPos = { x: event.clientX, y: event.clientY };
+  blockDrag.placeholderIndex = parsedBlocks.value.findIndex(b => b.id === blockId);
+
+  cancelBlockDragTimer();
+  blockDragTimer = window.setTimeout(() => {
+    blockDrag.isDragging = true;
+    blockDrag.draggingId = blockId;
+  }, blockDragDelay);
+};
+
+const handleBlockDragMove = (event: MouseEvent) => {
+  blockDrag.ghostPos = { x: event.clientX, y: event.clientY };
+
+  if (!blockDrag.isDragging || !blockDrag.draggingId || currentViewMode.value !== 'visual') return;
+
+  const visibleBlocks = filteredBlocks.value;
+  if (!visibleBlocks.length) return;
+
+  const y = event.clientY;
+  const elements: { el: HTMLElement; id: string }[] = [];
+  for (const blk of visibleBlocks) {
+    const el = document.getElementById(`block-${blk.id}`);
+    if (el) elements.push({ el, id: blk.id });
+  }
+  if (!elements.length) return;
+
+  let targetId = elements[elements.length - 1].id;
+
+  for (let i = 0; i < elements.length; i++) {
+    const { el, id } = elements[i];
+    const rect = el.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (y < mid) {
+      targetId = id;
+      break;
+    }
+  }
+
+  const draggedIndex = parsedBlocks.value.findIndex(b => b.id === blockDrag.draggingId);
+  const targetIndex = parsedBlocks.value.findIndex(b => b.id === targetId);
+  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return;
+
+  const updated = [...parsedBlocks.value];
+  const [item] = updated.splice(draggedIndex, 1);
+  updated.splice(targetIndex, 0, item);
+  parsedBlocks.value = updated;
+  blockDrag.placeholderIndex = targetIndex;
+};
+
+const handleBlockDragEnd = () => {
+  cancelBlockDragTimer();
+
+  blockDrag.isDragging = false;
+  blockDrag.draggingId = null;
+  blockDrag.placeholderIndex = -1;
 };
 
 const restoreVisualScroll = async () => {
@@ -636,7 +720,15 @@ const initAndScan = async () => {
 };
 
 onMounted(async () => {
+  window.addEventListener('mousemove', handleBlockDragMove);
+  window.addEventListener('mouseup', handleBlockDragEnd);
   await initAndScan();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', handleBlockDragMove);
+  window.removeEventListener('mouseup', handleBlockDragEnd);
+  cancelBlockDragTimer();
 });
 
 onActivated(async () => {
@@ -701,21 +793,27 @@ onActivated(async () => {
 
       <!-- VISUAL EDITOR -->
       <div v-show="currentViewMode === 'visual'" class="visual-editor-container" ref="visualListRef" @scroll="saveVisualScroll">
-          <div class="blocks-list">
+          <div class="blocks-list" ref="blocksListRef">
               <FilterRuleEditor 
                 v-for="block in filteredBlocks" 
                 :key="block.id"
                 :id="'block-' + block.id"
+                :class="{ dragging: blockDrag.draggingId === block.id }"
                 :block="block"
                 :expanded="isBlockExpanded(block)"
                 :filterPath="selectedFile?.path"
                 @update:expanded="(val) => handleBlockToggle(block, val)"
                 @open-ctx-menu="(e) => onBlockContextMenu(e, block.id)"
+                @start-drag="(e, id) => onBlockDragStart(e, id)"
                 @focus="focusedBlockId = block.id"
               />
               <div v-if="filteredBlocks.length === 0" class="empty-blocks">
                   {{ searchQuery ? '未找到匹配规则' : '没有找到规则，或解析失败。请尝试切换到代码模式查看。' }}
               </div>
+          </div>
+
+          <div v-if="blockDrag.isDragging && blockDrag.draggingId" class="block-ghost" :style="{ left: blockDrag.ghostPos.x + 'px', top: blockDrag.ghostPos.y + 'px' }">
+            拖动：{{ draggingLabel }}
           </div>
       </div>
 
@@ -820,6 +918,26 @@ onActivated(async () => {
     flex: 1;
     overflow-y: auto;
     padding: 12px;
+}
+
+:deep(.filter-block-card.dragging) {
+  opacity: 0.5;
+  transform: scale(0.99);
+}
+
+.block-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  background: rgba(40, 44, 52, 0.9);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  backdrop-filter: blur(4px);
 }
 
 .code-editor {

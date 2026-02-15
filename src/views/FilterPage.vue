@@ -5,6 +5,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { configManager } from "../utils/ConfigManager";
 import { FilterParser, type FilterBlock, type FilterLine } from '../utils/FilterParser';
 import FilterRuleEditor from '../components/FilterRuleEditor.vue';
+import FileTreeItem, { type FileNode } from '../components/FileTreeItem.vue';
 
 interface FilterFile {
   name: string;
@@ -15,7 +16,9 @@ interface FilterFile {
 // Maps filePath -> { expandedKey: string | null, scrollY: number }
 const globalViewState = reactive<Record<string, { expandedKey: string | null, scrollY: number }>>({});
 
-const filterFiles = ref<FilterFile[]>([]);
+const filterFiles = ref<FilterFile[]>([]); // Flattened list for logic compatibility if needed
+const fileTree = ref<FileNode[]>([]); // Tree structure for display
+
 const selectedFile = ref<FilterFile | null>(null);
 const parsedBlocks = ref<FilterBlock[]>([]);
 const focusedBlockId = ref<string | null>(null);
@@ -407,6 +410,95 @@ const openCreateDialog = async () => {
     }
 };
 
+
+const buildFileTree = (paths: string[], rootPath: string | undefined): FileNode[] => {
+    // If no root path, just list files flat (fallback)
+    if (!rootPath) {
+         return paths.map(p => ({
+             name: p.split(/[/\\]/).pop() || p,
+             path: p,
+             type: 'file',
+             children: [],
+             expanded: false
+         }));
+    }
+
+    const rootNodes: FileNode[] = [];
+    const normalizedRoot = rootPath.replace(/\\/g, '/');
+
+    paths.forEach(fullPath => {
+        const normalizedPath = fullPath.replace(/\\/g, '/');
+        // Ensure path starts with root
+        if (!normalizedPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) return;
+        
+        // Get relative part, +1 for slash
+        // Handle case where root matching might need care with trailing slash
+        let relative = normalizedPath.slice(normalizedRoot.length);
+        if (relative.startsWith('/')) relative = relative.slice(1);
+        
+        const parts = relative.split('/');
+        let currentLevel = rootNodes;
+        
+        parts.forEach((part, index) => {
+            const isLast = index === parts.length - 1;
+            const existing = currentLevel.find(n => n.name === part);
+            
+            if (existing) {
+                if (isLast) {
+                    // Should not happen if folder name is same as file name?
+                    // But assume folder structure is clean
+                } else {
+                    currentLevel = existing.children;
+                }
+            } else {
+                const nodeType = isLast ? 'file' : 'dir';
+                // Reconstruct path for this node
+                // Note: fullPath is only valid for the leaf file.
+                // For directories, we need to construct it.
+                // But simplified: we only really need path for 'file' types right now for selection.
+                // For folders, let's construct it properly just in case
+                
+                // Construct path up to this part
+                // This is a bit tricky with separators logic but let's try
+                // Simple approach: parent node path + part
+                const parentPath = currentLevel === rootNodes ? rootPath : null; 
+                // Wait, recursive search for path construction is complex.
+                // BUT, 'fullPath' contains everything.
+                // For intermediate folders, we can deduce.
+                // Actually, we can just defer path setting for folders or use what we parsed.
+                
+                const newNode: FileNode = {
+                    name: part,
+                    path: isLast ? fullPath : '', // We'll patch dir path if needed, or ignore
+                    type: nodeType,
+                    children: [],
+                    expanded: false
+                };
+                
+                currentLevel.push(newNode);
+                
+                if (!isLast) {
+                    currentLevel = newNode.children;
+                }
+            }
+        });
+    });
+
+    // Helper to sort: Folder < File, then Alphabetical
+    const sortNodes = (nodes: FileNode[]) => {
+        nodes.sort((a, b) => {
+            if (a.type !== b.type) {
+                return a.type === 'dir' ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name, undefined, { numeric: true });
+        });
+        nodes.forEach(n => sortNodes(n.children));
+    };
+    
+    sortNodes(rootNodes);
+    return rootNodes;
+};
+
 const scanFilters = async () => {
   const settings = configManager.getSettings();
   if (!settings.filterStoragePath) {
@@ -414,13 +506,13 @@ const scanFilters = async () => {
     return;
   }
 
-
   isLoading.value = true;
   try {
     const files = await invoke<string[]>("scan_filter_files", {
       path: settings.filterStoragePath,
     });
     
+    // Update flat list
     filterFiles.value = files
       .map((path) => {
         const name = path.split(/[/\\]/).pop() || path;
@@ -428,11 +520,30 @@ const scanFilters = async () => {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
       
+    // Build tree
+    fileTree.value = buildFileTree(files, settings.filterStoragePath);
+      
     // If there is a remembered selection, try to restore it
     const settingsAfter = configManager.getSettings();
     if (settingsAfter.lastSelectedFilter) {
       const match = filterFiles.value.find(f => f.path === settingsAfter.lastSelectedFilter);
       if (match) {
+        // Find in tree and expand parents?
+        // Recursive expand
+        const expandPath = (nodes: FileNode[], targetPath: string): boolean => {
+            for(const node of nodes) {
+                if (node.type === 'file' && node.path === targetPath) return true;
+                if (node.type === 'dir') {
+                    if (expandPath(node.children, targetPath)) {
+                        node.expanded = true;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        expandPath(fileTree.value, match.path);
+
         // restore selection but do not re-save setting
         await selectFile(match);
       }
@@ -444,6 +555,19 @@ const scanFilters = async () => {
   } finally {
     isLoading.value = false;
   }
+};
+
+const handleNodeSelect = (node: FileNode) => {
+    if (node.type === 'file') {
+        const fileObj = filterFiles.value.find(f => f.path === node.path);
+        if (fileObj) {
+            selectFile(fileObj);
+        }
+    }
+};
+
+const handleNodeToggle = (node: FileNode) => {
+    node.expanded = !node.expanded;
 };
 
 const selectFile = async (file: FilterFile) => {
@@ -779,17 +903,20 @@ onActivated(async () => {
         </div>
       </div>
       <div class="file-list">
-        <div 
-          v-for="file in filterFiles" 
-          :key="file.path"
-          class="file-item"
-          :class="{ active: selectedFile?.path === file.path }"
-          @click="selectFile(file)"
-          @contextmenu.prevent.stop="onFileContextMenu($event, file)"
-        >
-          <span class="file-icon">📄</span>
-          <span class="file-name">{{ file.name }}</span>
-        </div>
+        <FileTreeItem 
+            v-for="node in fileTree" 
+            :key="node.name + node.path" 
+            :node="node" 
+            :selectedPath="selectedFile?.path"
+            @select="handleNodeSelect"
+            @toggle="handleNodeToggle"
+            @context-menu="(e, n) => {
+                if(n.type === 'file') {
+                    // map Node back to FilterFile structure expected by context menu
+                    onFileContextMenu(e, { name: n.name, path: n.path });
+                }
+            }"
+        />
       </div>
     </div>
 

@@ -104,40 +104,32 @@ const setLineValue = (key: string, val: string, needsQuotes = false) => {
 
 // Computed Properties for common fields
 
-// BaseType needs special handling for large text areas and multiple delimiters
+// BaseType: one item per line; commas no longer parsed
 const baseTypes = computed({
   get: () => {
       const line = localBlock.value.lines.find(l => l.key.toLowerCase() === 'basetype');
       if (!line) return '';
-      return line.values.map(v => v.replace(/^"|"$/g, '')).join(', ');
+      return line.values.map(v => v.replace(/^"|"$/g, '').trim()).join('\n');
   },
-  set: (val) => {
-      // Smart split: Handle newlines, commas (both English and Chinese), and manual quotes
-      let values: string[] = [];
-      
-      if (val.includes('"')) {
-          const matches = val.match(/"[^"]*"|[^,\s\n]+/g);
-          if (matches) {
-              values = matches.map(m => `"${m.replace(/^"|"$/g, '')}"`);
-          }
-      } else {
-          const rawValues = val.split(/,|，|\n/).map(s => s.trim()).filter(s => s);
-          values = rawValues.map(s => `"${s}"`);
-      }
-      
+  set: (val: string) => {
+      const entries = val
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => `"${s}"`);
       const idx = findLineIndex('BaseType');
       if (idx >= 0) {
-          if (values.length === 0) {
+          if (entries.length === 0) {
                localBlock.value.lines.splice(idx, 1);
           } else {
-              localBlock.value.lines[idx].values = values;
+              localBlock.value.lines[idx].values = entries;
               localBlock.value.lines[idx].key = 'BaseType'; // Ensure casing
           }
-      } else if (values.length > 0) {
+      } else if (entries.length > 0) {
           localBlock.value.lines.push({
               key: 'BaseType',
               operator: undefined, 
-              values,
+              values: entries,
               raw: ''
           });
       }

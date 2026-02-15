@@ -1178,12 +1178,16 @@ const removeLineAtIndex = (idx: number) => {
                         <input v-model="height" class="glass-input small" placeholder="<= 2" />
                     </div>
                     <div class="form-group">
-                        <label>Identified</label>
+                        <label>鉴定状态</label>
                         <select v-model="identified" class="glass-select small">
-                            <option value="">Ignore</option>
-                            <option value="True">True</option>
-                            <option value="False">False</option>
+                            <option value="">忽略</option>
+                            <option value="True">已鉴定</option>
+                            <option value="False">未鉴定</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>未鉴定等阶</label>
+                        <input v-model="unidentifiedItemTier" class="glass-input small" placeholder=">= 4" />
                     </div>
                 </div>
             </div>
@@ -1348,10 +1352,6 @@ const removeLineAtIndex = (idx: number) => {
                     <div class="form-group">
                         <label>Waystone Tier</label>
                         <input v-model="waystoneTier" class="glass-input small" placeholder=">= 1" />
-                    </div>
-                    <div class="form-group">
-                        <label>Unidentified Tier</label>
-                        <input v-model="unidentifiedItemTier" class="glass-input small" placeholder=">= 1" />
                     </div>
                     <div class="form-group">
                         <label>Archnemesis Mod</label>

@@ -144,6 +144,7 @@ const baseTypes = computed({
 });
 
 const baseTypeInput = ref<HTMLTextAreaElement | null>(null);
+const rawHeaderInput = ref<HTMLTextAreaElement | null>(null);
 
 const adjustTextareaHeight = () => {
     const el = baseTypeInput.value;
@@ -153,8 +154,20 @@ const adjustTextareaHeight = () => {
     }
 };
 
+const adjustRawHeaderHeight = () => {
+    const el = rawHeaderInput.value;
+    if (el) {
+        el.style.height = 'auto';
+        el.style.height = (el.scrollHeight + 2) + 'px';
+    }
+};
+
 watch(baseTypes, () => {
     nextTick(adjustTextareaHeight);
+});
+
+watch(() => localBlock.value.rawHeader, () => {
+    nextTick(adjustRawHeaderHeight);
 });
 
 watch(isExpanded, (val) => {
@@ -162,9 +175,13 @@ watch(isExpanded, (val) => {
         // Need a slight delay or nextTick for v-if to render the element
         nextTick(() => {
             adjustTextareaHeight();
+            adjustRawHeaderHeight();
         });
         // Extra safety delay for transitions
-        setTimeout(adjustTextareaHeight, 100);
+        setTimeout(() => {
+            adjustTextareaHeight();
+            adjustRawHeaderHeight();
+        }, 100);
     }
 });
 
@@ -819,7 +836,15 @@ const removeLineAtIndex = (idx: number) => {
          <div class="form-grid">
              <div class="form-group start-col-span-3">
                  <label>额外注释与说明 (可选)</label>
-                 <textarea v-model="localBlock.rawHeader" class="glass-textarea small" rows="2" placeholder="# Comments..."></textarea>
+                 <textarea 
+                    ref="rawHeaderInput"
+                    v-model="localBlock.rawHeader" 
+                    class="glass-textarea small" 
+                    rows="1" 
+                    placeholder="# Comments..."
+                    @input="adjustRawHeaderHeight"
+                    @focus="adjustRawHeaderHeight"
+                 ></textarea>
              </div>
          </div>
 

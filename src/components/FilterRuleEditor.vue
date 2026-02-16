@@ -772,13 +772,17 @@ const playEffectTemp = computed({
 });
 
 const fontSize = computed({
-    get: () => getLineValue('SetFontSize'), 
+    get: () => {
+        const v = getLineValue('SetFontSize');
+        return v ? v : '32'; // Default to 32 for slider display
+    },
     set: (v) => {
         if (!v) {
             setLineValue('SetFontSize', '');
             return;
         }
-        const n = parseInt(v);
+        // Force conversion to number if it's not already (using Number() covers both string & number)
+        const n = Number(v);
         if (!isNaN(n)) {
             const clamped = Math.max(1, Math.min(45, n));
             setLineValue('SetFontSize', clamped.toString());
@@ -1145,9 +1149,10 @@ const removeLineAtIndex = (idx: number) => {
                   </div>
                   <div class="form-group tight">
                      <label>字体大小 [SetFontSize]</label>
-                     <div class="font-size-row">
-                         <input type="number" v-model.number="fontSize" class="glass-input small" placeholder="32" style="width: 120px;" />
-                         <span class="font-size-unit">px</span>
+                     <div class="font-size-row" style="display: flex; align-items: center;">
+                         <input type="range" min="1" max="45" v-model.number="fontSize" class="glass-slider" style="flex: 1; margin-right: 10px;" />
+                         <span class="font-size-value" style="min-width: 20px; text-align: right;">{{ fontSize || 32 }}</span>
+                         <span class="font-size-unit" style="margin-left: 4px;">px</span>
                      </div>
                   </div>
              </div>

@@ -783,18 +783,6 @@ const saveFile = async (mode: 'visual' | 'code' = currentViewMode.value) => {
   }
 };
 
-const openContainingFolder = async () => {
-  if (!selectedFile.value) return;
-  try {
-    // get directory by stripping last segment
-    const dir = selectedFile.value.path.replace(/[/\\][^/\\]+$/, '');
-    await invoke('open_folder_cmd', { path: dir });
-  } catch (e) {
-    console.error('Failed to open containing folder', e);
-    alert(`打开失败: ${e}`);
-  }
-};
-
 const codeEditor = ref<HTMLTextAreaElement | null>(null);
 
 const switchMode = async (mode: 'visual' | 'code') => {

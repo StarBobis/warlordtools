@@ -1,5 +1,5 @@
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
-// import { join, appLocalDataDir } from '@tauri-apps/api/path';
+import { reactive } from 'vue';
 
 export interface AppSettings {
     width: number;
@@ -12,6 +12,10 @@ export interface AppSettings {
     lastSelectedFilter?: string;
     // Navigation items order
     navOrder?: string[];
+    // Background Settings
+    backgroundType?: 'default' | 'image' | 'video';
+    backgroundPath?: string;
+    backgroundVolume?: number; // 0-100 for video volume
 }
 
 const CONFIG_DIR = 'WarlordToolsConfig';
@@ -23,11 +27,14 @@ const DEFAULT_SETTINGS: AppSettings = {
     height: 720,
     maximized: false,
     filterStoragePath: '',
-    navOrder: ['filter', 'market', 'workshop', 'poedb']
+    navOrder: ['filter', 'market', 'workshop', 'poedb'],
+    backgroundType: 'default',
+    backgroundPath: '',
+    backgroundVolume: 0
 };
 
 class ConfigManager {
-    private settings: AppSettings = { ...DEFAULT_SETTINGS };
+    private settings = reactive<AppSettings>({ ...DEFAULT_SETTINGS });
     private initialized = false;
 
     async init() {
@@ -53,7 +60,7 @@ class ConfigManager {
             
             if (fileExists) {
                const content = await readTextFile(`${CONFIG_DIR}/${CONFIG_FILE}`, { baseDir: BaseDirectory.LocalData });
-               this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(content) };
+               Object.assign(this.settings, { ...DEFAULT_SETTINGS, ...JSON.parse(content) });
             } else {
                await this.saveSettings();
             }
@@ -70,7 +77,7 @@ class ConfigManager {
 
     async saveSettings(newSettings?: Partial<AppSettings>) {
         if (newSettings) {
-            this.settings = { ...this.settings, ...newSettings };
+            Object.assign(this.settings, newSettings);
         }
         
         try {

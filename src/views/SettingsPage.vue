@@ -6,7 +6,13 @@ import { getVersion } from '@tauri-apps/api/app';
 import { configManager } from '../utils/ConfigManager';
 
 const appVersion = ref('1.0.0');
-const filterPath = ref(configManager.getSettings().filterStoragePath || '');
+const settings = configManager.getSettings();
+const filterPath = ref(settings.filterStoragePath || '');
+
+// Background Settings
+const bgType = ref(settings.backgroundType || 'default');
+const bgPath = ref(settings.backgroundPath || '');
+const bgVolume = ref(settings.backgroundVolume || 0);
 
 onMounted(async () => {
   try {
@@ -26,7 +32,9 @@ const selectFolder = async () => {
     });
 
     if (selected) {
-      const path = Array.isArray(selected) ? selected[0] : selected;
+      // In Tauri v2 plugin-dialog, directory selection returns string or null (if multiple: false)
+      // Wait, type definition says string | string[] | null.
+      const path = Array.isArray(selected) ? selected[0] : (selected as string);
       if (path) {
         filterPath.value = path;
         await saveSettings();
@@ -37,9 +45,39 @@ const selectFolder = async () => {
   }
 };
 
+const selectBackgroundFile = async () => {
+  try {
+    const isImage = bgType.value === 'image';
+    const extensions = isImage 
+        ? ['jpg', 'jpeg', 'png', 'webp', 'gif'] 
+        : ['mp4', 'webm', 'mkv', 'mov'];
+        
+    const selected = await openDialog({
+        multiple: false,
+        filters: [{
+            name: isImage ? 'Images' : 'Videos',
+            extensions
+        }]
+    });
+
+    if (selected) {
+         const path = Array.isArray(selected) ? selected[0] : (selected as string);
+         if (path) {
+             bgPath.value = path;
+             await saveSettings();
+         }
+    }
+  } catch (e) {
+    console.error('File dialog failed', e);
+  }
+};
+
 const saveSettings = async () => {
   await configManager.saveSettings({
     filterStoragePath: filterPath.value,
+    backgroundType: bgType.value as any,
+    backgroundPath: bgPath.value,
+    backgroundVolume: bgVolume.value
   });
 };
 
@@ -78,6 +116,50 @@ const openContainingFolder = async () => {
                 <div class="button-row">
                   <button class="glass-button" @click="selectFolder">更改目录</button>
                   <button class="glass-button" @click="openContainingFolder">打开所在文件夹</button>
+                </div>
+              </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">
+            <span class="title-text">外观设置</span>
+            <span class="title-desc">个性化界面背景</span>
+          </div>
+          <div class="glass-card">
+              <div class="form-item">
+                <label class="form-label">背景类型</label>
+                <div class="radio-group">
+                   <label class="radio-label">
+                      <input type="radio" v-model="bgType" value="default" @change="saveSettings">
+                      <span>默认 (Default)</span>
+                   </label>
+                   <label class="radio-label">
+                      <input type="radio" v-model="bgType" value="image" @change="saveSettings">
+                      <span>图片 (Image)</span>
+                   </label>
+                   <label class="radio-label">
+                      <input type="radio" v-model="bgType" value="video" @change="saveSettings">
+                      <span>视频 (Video)</span>
+                   </label>
+                </div>
+              </div>
+
+              <div class="form-item" v-if="bgType !== 'default'">
+                <label class="form-label">背景文件路径</label>
+                <div class="path-selector">
+                  <input
+                    v-model="bgPath"
+                    readonly
+                    placeholder="请选择背景文件"
+                    class="glass-input"
+                  />
+                  <button class="glass-button" @click="selectBackgroundFile">选择文件</button>
+                </div>
+                
+                <div class="volume-control" v-if="bgType === 'video'">
+                    <label class="form-label small">视频音量: {{ bgVolume }}%</label>
+                    <input type="range" v-model.number="bgVolume" min="0" max="100" class="volume-slider" @change="saveSettings" />
                 </div>
               </div>
           </div>
@@ -367,5 +449,47 @@ const openContainingFolder = async () => {
 .glass-button:active {
   transform: translateY(0);
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Radio Group */
+.radio-group {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    padding-left: 4px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.radio-label input {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: #409eff;
+}
+
+/* Volume Control */
+.volume-control {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.volume-slider {
+    flex: 1;
+    cursor: pointer;
+    accent-color: #409eff;
+}
+.form-label.small {
+    font-size: 14px;
+    width: 120px;
 }
 </style>

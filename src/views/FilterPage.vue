@@ -33,7 +33,6 @@ const saveStatus = ref<string>("");
 const currentViewMode = ref<'visual' | 'code'>('visual');
 const rawContent = ref<string>("");
 const visualListRef = ref<HTMLElement | null>(null);
-const blocksListRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
 // Buffer for copying attributes (non-BaseType lines)
 const clipboardLines = ref<FilterLine[]>([]);
@@ -42,12 +41,16 @@ const clipboardLines = ref<FilterLine[]>([]);
 const blockDrag = reactive({
   isDragging: false,
   draggingId: null as string | null,
+  pendingId: null as string | null,
+  ready: false,
   ghostPos: { x: 0, y: 0 },
+  startPos: { x: 0, y: 0 },
   placeholderIndex: -1
 });
+ 
+const blockDragDelay = 300; // ms - increased to avoid accidental drags
+const blockDragMoveThreshold = 6; // px - require small movement before starting drag
 let blockDragTimer: number | null = null;
-const blockDragDelay = 220; // ms
-
 
 const filteredBlocks = computed(() => {
     if (!searchQuery.value) return parsedBlocks.value;
@@ -141,21 +144,54 @@ const cancelBlockDragTimer = () => {
 
 const onBlockDragStart = (event: MouseEvent, blockId: string) => {
   if (currentViewMode.value !== 'visual') return;
+  // strict left button check
+  if (event.button !== 0) return;
+
+  // Prevent native selections while arming drag
+  event.preventDefault();
 
   blockDrag.ghostPos = { x: event.clientX, y: event.clientY };
-  blockDrag.placeholderIndex = parsedBlocks.value.findIndex(b => b.id === blockId);
-
+  blockDrag.startPos = { x: event.clientX, y: event.clientY };
+  blockDrag.pendingId = blockId;
+  blockDrag.ready = false;
+  
   cancelBlockDragTimer();
   blockDragTimer = window.setTimeout(() => {
-    blockDrag.isDragging = true;
-    blockDrag.draggingId = blockId;
+    blockDrag.ready = true;
   }, blockDragDelay);
 };
 
 const handleBlockDragMove = (event: MouseEvent) => {
   blockDrag.ghostPos = { x: event.clientX, y: event.clientY };
 
-  if (!blockDrag.isDragging || !blockDrag.draggingId || currentViewMode.value !== 'visual') return;
+  // Only react while the primary button is held; if we somehow missed mouseup, force a reset
+  const primaryHeld = (event.buttons & 1) === 1;
+  if (!primaryHeld) {
+    if (blockDrag.isDragging || blockDrag.pendingId) {
+      handleBlockDragEnd();
+    }
+    return;
+  }
+
+  if (currentViewMode.value !== 'visual') return;
+
+  // Not yet dragging: check if we should start after delay + movement
+  if (!blockDrag.isDragging) {
+    if (!blockDrag.pendingId || !blockDrag.ready) return;
+    const dx = event.clientX - blockDrag.startPos.x;
+    const dy = event.clientY - blockDrag.startPos.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < blockDragMoveThreshold) return;
+
+    const idx = parsedBlocks.value.findIndex(b => b.id === blockDrag.pendingId);
+    if (idx === -1) return;
+
+    blockDrag.isDragging = true;
+    blockDrag.draggingId = blockDrag.pendingId;
+    blockDrag.placeholderIndex = idx;
+  }
+
+  if (!blockDrag.draggingId) return;
 
   const visibleBlocks = filteredBlocks.value;
   if (!visibleBlocks.length) return;
@@ -193,10 +229,16 @@ const handleBlockDragMove = (event: MouseEvent) => {
 
 const handleBlockDragEnd = () => {
   cancelBlockDragTimer();
+  
+  if (blockDrag.isDragging) {
+      blockDrag.isDragging = false;
+      blockDrag.draggingId = null;
+      blockDrag.placeholderIndex = -1;
+  }
 
-  blockDrag.isDragging = false;
-  blockDrag.draggingId = null;
-  blockDrag.placeholderIndex = -1;
+  // Always clear pending state so a quick click does not arm the next drag
+  blockDrag.pendingId = null;
+  blockDrag.ready = false;
 };
 
 const restoreVisualScroll = async () => {
@@ -969,16 +1011,26 @@ const initAndScan = async () => {
 };
 
 onMounted(async () => {
-  window.addEventListener('mousemove', handleBlockDragMove);
-  window.addEventListener('mouseup', handleBlockDragEnd);
+  // Attach global listeners in capture phase so they still fire even if inner handlers stop propagation
+  window.addEventListener('mousemove', handleBlockDragMove, true);
+  window.addEventListener('mouseup', handleBlockDragEnd, true);
+  window.addEventListener('pointerup', handleBlockDragEnd, true);
+  window.addEventListener('pointercancel', handleBlockDragEnd, true);
+  window.addEventListener('mouseleave', handleBlockDragEnd, true);
+  window.addEventListener('blur', handleBlockDragEnd);
   await initAndScan();
 });
 
 onUnmounted(() => {
-  window.removeEventListener('mousemove', handleBlockDragMove);
-  window.removeEventListener('mouseup', handleBlockDragEnd);
+  window.removeEventListener('mousemove', handleBlockDragMove, true);
+  window.removeEventListener('mouseup', handleBlockDragEnd, true);
+  window.removeEventListener('pointerup', handleBlockDragEnd, true);
+  window.removeEventListener('pointercancel', handleBlockDragEnd, true);
+  window.removeEventListener('mouseleave', handleBlockDragEnd, true);
+  window.removeEventListener('blur', handleBlockDragEnd);
   cancelBlockDragTimer();
 });
+
 
 onActivated(async () => {
     if (filterFiles.value.length === 0) {
@@ -1039,8 +1091,8 @@ onActivated(async () => {
       </div>
 
       <!-- VISUAL EDITOR -->
-      <div v-show="currentViewMode === 'visual'" class="visual-editor-container" ref="visualListRef" @scroll="saveVisualScroll">
-          <div class="blocks-list" ref="blocksListRef">
+        <div v-show="currentViewMode === 'visual'" class="visual-editor-container" ref="visualListRef" @scroll="saveVisualScroll">
+          <div class="blocks-list">
               <FilterRuleEditor 
                 v-for="block in filteredBlocks" 
                 :key="block.id"

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed, watchEffect } from "vue";
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { configManager } from "./utils/ConfigManager";
 import TitleBar from "./components/TitleBar.vue";
 import FilterPage from "./views/FilterPage.vue";
@@ -12,6 +13,44 @@ import SettingsPage from "./views/SettingsPage.vue";
 
 // State
 const currentView = ref("filter");
+const settings = configManager.getSettings();
+
+const bgStyle = computed(() => {
+    const type = settings.backgroundType;
+    const path = settings.backgroundPath;
+
+    if (type === 'image' && path) {
+        return { 
+          backgroundImage: `url("${convertFileSrc(path)}")`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
+        };
+    }
+    // If video is active, show nothing behind (or show default while loading? but we want clean)
+    if (type === 'video' && path) {
+        return {}; 
+    }
+    // Default or Fallback (including when Image/Video selected but no path)
+    return { 
+      backgroundImage: `url("/Background.png")`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    };
+});
+
+const videoRef = ref<HTMLVideoElement | null>(null);
+
+// Apply volume when changed or when video mounts
+watchEffect(() => {
+    if (videoRef.value) {
+         const vol = (settings.backgroundVolume ?? 0) / 100;
+         videoRef.value.volume = vol;
+         videoRef.value.muted = (vol === 0);
+    }
+});
+
+const isVideo = computed(() => settings.backgroundType === 'video' && !!settings.backgroundPath);
+const videoSrc = computed(() => settings.backgroundPath ? convertFileSrc(settings.backgroundPath) : '');
 
 // Component Mapping
 const viewComponents: Record<string, any> = {
@@ -89,7 +128,9 @@ onMounted(async () => {
 <template>
   <div class="app-container dark">
     <!-- Layer 1: Background Image -->
-    <div class="bg-layer"></div>
+    <div class="bg-layer" :style="!isVideo ? bgStyle : {}">
+      <video v-if="isVideo" ref="videoRef" :src="videoSrc" autoplay loop muted playsinline class="bg-video"></video>
+    </div>
 
     <!-- Layer 2: Vignette Shadow -->
     <div class="shadow-layer"></div>
@@ -172,6 +213,8 @@ body {
   height: 100%;
   /* Deep void base with subtle cold light emitting from center */
   background-color: #050505;
+  background-size: cover;
+  background-position: center;
   background: radial-gradient(
       ellipse at 50% 40%, 
       #232838 0%,       /* Muted blue-grey core - subtle light */
@@ -179,6 +222,15 @@ body {
       #020202 100%      /* Pitch black edges */
   );
   z-index: 0;
+}
+
+.bg-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* Layer 2 */

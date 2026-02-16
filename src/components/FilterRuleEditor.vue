@@ -1203,17 +1203,18 @@ const removeLineAtIndex = (idx: number) => {
                  <div class="form-group tight">
                      <label>掉落音效 [PlayAlertSound]</label>
                      <div class="sound-row">
-                        <select v-model="alertSoundId" class="glass-select small" style="flex: 1; min-width: 110px;">
-                            <option value="">None</option>
-                            <option v-for="n in 16" :key="n" :value="n.toString()">Sound {{ n }}</option>
+                        <select v-model="alertSoundId" class="glass-select small" style="flex: 0 0 100px;">
+                            <option value="">默认音效</option>
+                            <option v-for="n in 16" :key="n" :value="n.toString()">音效 {{ n }}</option>
                         </select>
-                        <div class="input-suffix-group" style="display: flex; align-items: center; position: relative; width: 90px;">
-                            <input type="number" v-model="alertSoundVolume" min="0" max="300" class="glass-input small" style="width: 100%; padding-right: 28px; text-align: center;" title="Volume (0-300)" />
-                            <span class="mini-suffix" style="right: 6px;">音量</span>
+                        <div class="sound-volume-slider" style="display: flex; align-items: center; flex: 1; margin-left: 8px;">
+                            <span class="mini-label" style="margin-right: 4px; font-size: 11px; color: #aaa;">Vol:</span>
+                            <input type="range" min="0" max="300" v-model.number="alertSoundVolume" class="glass-slider" style="flex: 1; margin-right: 6px;" />
+                            <span class="volume-value" style="font-size: 11px; min-width: 24px; text-align: right;">{{ alertSoundVolume }}</span>
                         </div>
-                        <label class="bool-check" style="margin: 0; white-space: nowrap;">
+                        <label class="bool-check" style="margin: 0; white-space: nowrap; margin-left: 8px;">
                             <input type="checkbox" v-model="disableDropSound" />
-                            <span>关闭掉落音效 [DisableDropSound]</span>
+                            <span>禁用掉落音效</span>
                         </label>
                     </div>
                  </div>

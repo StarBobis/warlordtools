@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, onUnmounted, nextTick, reactive, computed } from "vue";
+import { ref, onMounted, onActivated, onUnmounted, nextTick, reactive, computed, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { configManager } from "../utils/ConfigManager";
@@ -32,6 +32,8 @@ const isLoading = ref(false);
 const saveStatus = ref<string>("");
 const currentViewMode = ref<'visual' | 'code'>('visual');
 const rawContent = ref<string>("");
+const autoSaveReady = ref(false);
+let isSyncing = false; // guard to prevent watcher feedback loops
 const visualListRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
 // Buffer for copying attributes (non-BaseType lines)
@@ -713,6 +715,7 @@ const selectFile = async (file: FilterFile) => {
       saveVisualScroll();
   }
   
+  autoSaveReady.value = false; // pause autosave during load
   selectedFile.value = file;
   searchQuery.value = ""; // Reset search on file change
   // persist the last selected file
@@ -724,6 +727,7 @@ const selectFile = async (file: FilterFile) => {
     const content = await invoke<string>("read_file_content", {
       path: file.path,
     });
+    isSyncing = true;
     rawContent.value = content;
     // Parse immediately
     parsedBlocks.value = FilterParser.parse(content);
@@ -740,36 +744,39 @@ const selectFile = async (file: FilterFile) => {
     console.error("Failed to read file:", error);
     alert(`读取失败: ${error}`);
   } finally {
+    isSyncing = false;
+    autoSaveReady.value = true;
     isLoading.value = false;
   }
 };
 
-const saveFile = async () => {
+const saveFile = async (mode: 'visual' | 'code' = currentViewMode.value) => {
   if (!selectedFile.value) return;
   
   try {
     let contentToSave = "";
-    if (currentViewMode.value === 'visual') {
+    if (mode === 'visual') {
         saveVisualScroll();
-        // Regenerate from blocks
         contentToSave = FilterParser.stringify(parsedBlocks.value);
-        // Sync back to raw for consistency if we switch tabs
-        rawContent.value = contentToSave; 
+        isSyncing = true;
+        rawContent.value = contentToSave; // keep code view in sync
+        isSyncing = false;
     } else {
         contentToSave = rawContent.value;
-        // Sync to blocks? Maybe tricky if syntax error.
-        // Let's try to parse silently to update visual view if valid
+        // Try updating visual view from code, ignore parse errors
         try {
+            isSyncing = true;
             parsedBlocks.value = FilterParser.parse(contentToSave);
-        } catch(e) { /* ignore */ }
+        } catch(e) { /* ignore parse errors during autosave */ }
+        isSyncing = false;
     }
 
     await invoke("write_file_content", {
       path: selectedFile.value.path,
       content: contentToSave,
     });
-    saveStatus.value = "保存成功!";
-    setTimeout(() => saveStatus.value = "", 3000);
+    saveStatus.value = "已自动保存";
+    setTimeout(() => saveStatus.value = "", 2000);
   } catch (error) {
     console.error("Failed to save file:", error);
     alert(`保存失败: ${error}`);
@@ -800,12 +807,16 @@ const switchMode = async (mode: 'visual' | 'code') => {
     
   if (mode === 'visual') {
     // Switching to visual: Parse current raw text and reuse IDs to retain expansion state
+    isSyncing = true;
     const newlyParsed = FilterParser.parse(rawContent.value);
     parsedBlocks.value = reuseBlockIds(parsedBlocks.value, newlyParsed);
+    isSyncing = false;
     await restoreVisualScroll();
   } else {
     // Switching to code: Stringify current blocks
+    isSyncing = true;
     rawContent.value = FilterParser.stringify(parsedBlocks.value);
+    isSyncing = false;
     
     // Using setTimeout instead of nextTick due to potential layout thrashing/delays in rendering large textareas
     setTimeout(() => {
@@ -884,6 +895,17 @@ const addNewBlock = () => {
       lines: []
     });
 };
+
+// Autosave hooks: persist on any change in current mode
+watch(parsedBlocks, async () => {
+  if (!autoSaveReady.value || currentViewMode.value !== 'visual' || isSyncing) return;
+  await saveFile('visual');
+}, { deep: true });
+
+watch(rawContent, async () => {
+  if (!autoSaveReady.value || currentViewMode.value !== 'code' || isSyncing) return;
+  await saveFile('code');
+});
 
 // Context Menu Logic
 const contextMenu = reactive<{
@@ -1084,9 +1106,7 @@ onActivated(async () => {
            <div class="right-tools">
                <input v-if="currentViewMode === 'visual'" v-model="searchQuery" class="glass-input search-box" placeholder="🔍 搜索规则..." />
                <span class="save-status">{{ saveStatus }}</span>
-               <button v-if="currentViewMode === 'visual'" class="glass-button" @click="addNewBlock">+ 添加规则</button>
-               <button class="glass-button" @click="openContainingFolder">打开所在文件夹</button>
-               <button class="glass-button primary" @click="saveFile">保存文件</button>
+            <button v-if="currentViewMode === 'visual'" class="glass-button" @click="addNewBlock">+ 添加规则</button>
            </div>
       </div>
 

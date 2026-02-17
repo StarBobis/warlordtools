@@ -871,17 +871,130 @@ const switchMode = async (mode: 'visual' | 'code') => {
 }
 
 const addNewBlock = () => {
+    showAddMenu.value = false;
     parsedBlocks.value.unshift({
         id: crypto.randomUUID(),
         type: 'Show',
         name: 'New Rule',
         category: 'Custom',
         priority: 'Normal',
-        startLine: 0, // Default to top, will be recalculated on save/view switch
+        startLine: 0, 
       rawHeader: '',
       inlineComments: [],
       lines: []
     });
+};
+
+// Preset Rules Logic
+const showAddMenu = ref(false);
+const showPresetModal = ref(false);
+const presetRules = ref<FilterBlock[]>([]);
+const selectedPresetIndices = ref<Set<number>>(new Set()); // unique keys are indices for now since presets might reuse IDs or have none
+const isPresetLoading = ref(false);
+
+const openPresetModal = async () => {
+    showAddMenu.value = false;
+    showPresetModal.value = true;
+    selectedPresetIndices.value.clear();
+    
+    if (presetRules.value.length === 0) {
+        isPresetLoading.value = true;
+        try {
+            const response = await fetch('/PresetRules.filter');
+            if (!response.ok) throw new Error('Failed to load preset rules');
+            const text = await response.text();
+            presetRules.value = FilterParser.parse(text);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to load preset rules: ' + e);
+        } finally {
+            isPresetLoading.value = false;
+        }
+    }
+};
+
+const togglePresetSelection = (index: number) => {
+    if (selectedPresetIndices.value.has(index)) {
+        selectedPresetIndices.value.delete(index);
+    } else {
+        selectedPresetIndices.value.add(index);
+    }
+};
+
+const confirmPresetImport = () => {
+    const selectedBlocks = presetRules.value.filter((_, i) => selectedPresetIndices.value.has(i));
+    
+    // Clone and insert
+    const newBlocks = selectedBlocks.map(block => ({
+        ...block,
+        id: crypto.randomUUID(), // Ensure unique IDs for the new copies
+        startLine: 0 // Reset position
+    }));
+    
+    // Insert at top
+    parsedBlocks.value.unshift(...newBlocks);
+    
+    showPresetModal.value = false;
+};
+
+// Helpers for preset visuals
+const getTypeLabel = (type?: string) => {
+  switch ((type || '').toLowerCase()) {
+    case 'show': return '显示';
+    case 'hide': return '隐藏';
+    case 'minimal': return '最小化';
+    case 'continue': return '继续';
+    default: return '规则';
+  }
+};
+
+const getTypeClass = (type?: string) => {
+  switch ((type || '').toLowerCase()) {
+    case 'show': return 'preset-type-show';
+    case 'hide': return 'preset-type-hide';
+    case 'minimal': return 'preset-type-minimal';
+    case 'continue': return 'preset-type-continue';
+    default: return 'preset-type-default';
+  }
+};
+
+const findLine = (block: FilterBlock, key: string) => {
+  return block.lines.find(l => l.key.toLowerCase() === key.toLowerCase());
+};
+
+const getBaseTags = (block: FilterBlock) => {
+  const line = findLine(block, 'BaseType');
+  if (!line) return [] as string[];
+  return line.values.map(v => v.replace(/^"|"$/g, '').trim()).filter(Boolean);
+};
+
+type ColorSpec = { r: number; g: number; b: number; a?: number } | null;
+
+const parseColor = (block: FilterBlock, key: string): ColorSpec => {
+  const line = findLine(block, key);
+  if (!line) return null;
+  const nums = line.values.slice(0, 4).map(v => parseInt(v, 10)).filter(v => !Number.isNaN(v));
+  if (nums.length < 3) return null;
+  const [r, g, b, a] = nums;
+  return { r, g, b, a };
+};
+
+const toRgba = (c: ColorSpec, fallbackAlpha = 0.2) => {
+  if (!c) return undefined;
+  const alpha = typeof c.a === 'number' ? Math.min(1, Math.max(0, c.a / 255)) : fallbackAlpha;
+  return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+};
+
+const getTagStyle = (block: FilterBlock) => {
+  const text = parseColor(block, 'SetTextColor');
+  const bg = parseColor(block, 'SetBackgroundColor');
+  const border = parseColor(block, 'SetBorderColor');
+
+  const style: Record<string, string> = {};
+  if (text) style.color = `rgb(${text.r}, ${text.g}, ${text.b})`;
+  if (bg) style.backgroundColor = toRgba(bg, 0.18)!;
+  if (border) style.borderColor = toRgba(border, 0.45)!;
+  return style;
 };
 
 // Autosave hooks: persist on any change in current mode
@@ -1094,7 +1207,63 @@ onActivated(async () => {
            <div class="right-tools">
                <input v-if="currentViewMode === 'visual'" v-model="searchQuery" class="glass-input search-box" placeholder="🔍 搜索规则..." />
                <span class="save-status">{{ saveStatus }}</span>
-            <button v-if="currentViewMode === 'visual'" class="glass-button" @click="addNewBlock">+ 添加规则</button>
+            <div class="add-rule-wrapper" v-if="currentViewMode === 'visual'">
+                <button class="glass-button" @click="showAddMenu = !showAddMenu">+ 添加规则</button>
+                <div v-if="showAddMenu" class="add-rule-menu" @click.stop>
+                    <div class="menu-item" @click="addNewBlock">新建空白规则</div>
+                    <div class="menu-item" @click="openPresetModal">从预设库添加</div>
+                </div>
+            </div>
+           </div>
+           
+           <!-- Add Preset Modal -->
+           <div v-if="showPresetModal" class="modal-overlay" @click.self="showPresetModal = false">
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3>选择预设规则</h3>
+                        <button class="close-btn" @click="showPresetModal = false">×</button>
+                    </div>
+                    <div class="preset-list">
+                        <div v-if="isPresetLoading" class="loading-text">加载中...</div>
+                        <div v-else-if="presetRules.length === 0" class="empty-text">没有找到预设规则</div>
+                        <div v-else 
+                           v-for="(block, index) in presetRules" 
+                           :key="index" 
+                           :class="['preset-item', getTypeClass(block.type), { selected: selectedPresetIndices.has(index) }]"
+                           @click="togglePresetSelection(index)">
+                           <div class="checkbox">{{ selectedPresetIndices.has(index) ? '☑' : '☐' }}</div>
+                           <div class="preset-info">
+                             <div class="preset-header">
+                               <span class="type-pill" :class="getTypeClass(block.type)">{{ getTypeLabel(block.type) }}</span>
+                               <span class="preset-name">{{ block.name || block.rawHeader.substring(0, 30) || '未命名规则' }}</span>
+                               <span v-if="block.priority" class="priority-chip">{{ block.priority }}</span>
+                             </div>
+                             <div class="preset-tags">
+                               <template v-if="getBaseTags(block).length">
+                                 <span 
+                                  v-for="tag in getBaseTags(block)" 
+                                  :key="tag"
+                                  class="base-tag"
+                                  :style="getTagStyle(block)">{{ tag }}</span>
+                               </template>
+                               <template v-else-if="block.category">
+                                 <span class="base-tag category-chip">{{ block.category }}</span>
+                               </template>
+                               <template v-else>
+                                 <span class="base-tag subtle">未提供 BaseType / 分类</span>
+                               </template>
+                             </div>
+                           </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <span class="selection-count">已选 {{ selectedPresetIndices.size }} 项</span>
+                        <div class="modal-actions">
+                            <button class="glass-button" @click="showPresetModal = false">取消</button>
+                            <button class="glass-button primary" @click="confirmPresetImport" :disabled="selectedPresetIndices.size === 0">导入选中规则</button>
+                        </div>
+                    </div>
+                </div>
            </div>
       </div>
 
@@ -1379,4 +1548,319 @@ onActivated(async () => {
 
 .save-status { color: #67c23a; font-size: 12px; }
 .welcome-state { align-items: center; justify-content: center; color: #666; }
+
+/* Preset Rule & Menu Styles */
+.add-rule-wrapper {
+  position: relative;
+}
+
+.add-rule-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #2a2d3e;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  width: 140px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.menu-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(2px);
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-card {
+  background: #1e222a;
+  width: 600px;
+  max-width: 90vw;
+  height: 80vh;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 16px;
+  background: rgba(0,0,0,0.2);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+
+.close-btn {
+    background: transparent;
+    border: none;
+    color: #999;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+}
+.close-btn:hover { color: #fff; }
+
+.preset-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+
+.preset-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: all 0.2s ease;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+  position: relative;
+  overflow: hidden;
+}
+
+.preset-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, rgba(64,158,255,0.7), rgba(64,158,255,0.25));
+  opacity: 0.7;
+}
+
+.preset-type-show::before { background: linear-gradient(180deg, rgba(76,175,80,0.9), rgba(76,175,80,0.35)); }
+.preset-type-hide::before { background: linear-gradient(180deg, rgba(255,87,87,0.9), rgba(255,87,87,0.35)); }
+.preset-type-minimal::before { background: linear-gradient(180deg, rgba(255,215,0,0.9), rgba(255,215,0,0.35)); }
+.preset-type-continue::before { background: linear-gradient(180deg, rgba(0,188,212,0.9), rgba(0,188,212,0.35)); }
+.preset-type-default::before { background: linear-gradient(180deg, rgba(64,158,255,0.7), rgba(64,158,255,0.25)); }
+
+.preset-item:hover {
+  background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.preset-item.selected {
+  background: linear-gradient(135deg, rgba(64,158,255,0.15), rgba(64,158,255,0.08));
+  border-color: rgba(64,158,255,0.5);
+  box-shadow: 0 12px 26px rgba(64,158,255,0.18);
+}
+
+.checkbox {
+  margin-right: 12px;
+  font-size: 16px;
+  color: #888;
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preset-item.selected .checkbox {
+  color: #409eff;
+}
+
+.preset-info {
+  flex: 1;
+}
+
+.preset-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.type-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preset-type-show .type-pill,
+.type-pill.preset-type-show {
+  background: rgba(76, 175, 80, 0.18);
+  color: #9be39b;
+  border: 1px solid rgba(76, 175, 80, 0.35);
+}
+
+.preset-type-hide .type-pill,
+.type-pill.preset-type-hide {
+  background: rgba(255, 87, 87, 0.12);
+  color: #ff9e9e;
+  border: 1px solid rgba(255, 87, 87, 0.32);
+}
+
+.preset-type-minimal .type-pill,
+.type-pill.preset-type-minimal {
+  background: rgba(255, 215, 0, 0.12);
+  color: #ffe08a;
+  border: 1px solid rgba(255, 215, 0, 0.32);
+}
+
+.preset-type-continue .type-pill,
+.type-pill.preset-type-continue {
+  background: rgba(0, 188, 212, 0.12);
+  color: #8ee8ff;
+  border: 1px solid rgba(0, 188, 212, 0.32);
+}
+
+.preset-type-default .type-pill,
+.type-pill.preset-type-default {
+  background: rgba(255,255,255,0.08);
+  color: #d7e3f4;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.preset-name {
+  font-weight: 700;
+  color: #f3f3f3;
+  font-size: 14px;
+}
+
+.priority-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  color: #ffde8a;
+  border: 1px solid rgba(255,222,138,0.4);
+}
+
+.preset-preview {
+  font-size: 11px;
+  color: #9fb3c8;
+  font-family: monospace;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.preview-line {
+    background: rgba(0,0,0,0.2);
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+.preset-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+
+.base-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #e6eef5;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.base-tag.category-chip {
+  background: rgba(64,158,255,0.12);
+  border-color: rgba(64,158,255,0.4);
+  color: #cfe5ff;
+  font-weight: 600;
+}
+
+.base-tag.subtle {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.08);
+  color: #9aa6b2;
+}
+
+.base-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+}
+
+.preset-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.meta-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  color: #cfd8dc;
+}
+
+.meta-chip.subtle {
+  color: #9aa6b2;
+  background: rgba(255,255,255,0.05);
+}
+
+.modal-footer {
+  padding: 16px;
+  background: rgba(0,0,0,0.2);
+  border-top: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.selection-count {
+    color: #888;
+    font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.loading-text, .empty-text {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
 </style>

@@ -1036,7 +1036,12 @@ const removeLineAtIndex = (idx: number) => {
         </div>
       </div>
       <div class="header-right">
-         <select v-model="localBlock.type" class="glass-select small" @click.stop>
+            <select 
+                v-model="localBlock.type" 
+                class="glass-select small" 
+                @click.stop 
+                @mousedown.stop 
+                @pointerdown.stop>
             <option value="Show">显示</option>
             <option value="Hide">隐藏</option>
             <option value="Minimal">最小化</option>

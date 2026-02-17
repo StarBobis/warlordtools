@@ -1,0 +1,48 @@
+# 液化情感
+Show
+    BaseType "液化内疚" "液化绝望" "液化恐惧" "液化痛苦" "液化孤独" "液化愤怒" "液化嫉妒" "液化贪婪" "液化憎恶" "液化偏执"
+    SetTextColor 238 0 255 255
+    SetBackgroundColor 0 0 0 255
+    SetBorderColor 255 0 0 0
+    SetFontSize 45
+    PlayEffect Purple
+
+# 催化剂
+Show
+    PlayEffect Red
+    SetTextColor 255 0 0 255
+    SetFontSize 45
+    BaseType "催化剂"
+
+# 精华
+Show
+    BaseType "精华"
+    SetTextColor 0 17 255 255
+    SetBackgroundColor 255 255 255 255
+    SetFontSize 45
+    SetBorderColor 255 0 0 255
+
+
+# 知识卷轴
+Show
+    BaseType "知识卷轴"
+    SetFontSize 45
+    SetTextColor 255 255 255 255
+    SetBackgroundColor 0 0 0 255
+    SetBorderColor 0 0 0 255
+    PlayEffect White
+
+
+# 增幅器-符文
+Show
+    BaseType "符文"
+    SetTextColor 80 67 254 255
+    SetBackgroundColor 255 255 255 255
+    SetBorderColor 0 0 0 255
+    SetFontSize 45
+    PlayEffect Blue
+    Class "增幅器"
+
+
+
+

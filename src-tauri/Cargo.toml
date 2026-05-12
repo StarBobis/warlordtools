@@ -29,4 +29,5 @@ tauri-plugin-global-shortcut = "2"
 arboard = "3"
 enigo = "0.2"
 ureq = { version = "2", features = ["json"] }
+regex = "1"
 

@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { parseItemText, type ParsedItem } from '../utils/ItemParser';
 
 // State
@@ -18,13 +19,50 @@ const server = ref<'cn' | 'intl'>('cn');
 const league = ref('Standard');
 const sessionCookieCn = ref('');
 const sessionCookieIntl = ref('');
+const leagueOptions = ref<string[]>(['Standard']);
+const isLoadingLeagues = ref(false);
 
 const serverLabel: Record<string, string> = {
   cn: '国服',
   intl: '国际服',
 };
 
-const leagueOptions = ['Standard', 'Hardcore', 'Settlers', 'Necropolis', 'Affliction'];
+async function fetchLeagues() {
+  isLoadingLeagues.value = true;
+  try {
+    // Try webview first (works with HttpOnly cookies for CN)
+    let result: string[];
+    try {
+      result = await invoke<string[]>('fetch_leagues_webview', { server: server.value });
+    } catch {
+      // Fall back to direct API
+      const cookie = server.value === 'cn' ? sessionCookieCn.value : sessionCookieIntl.value;
+      result = await invoke<string[]>('fetch_leagues', {
+        server: server.value,
+        sessionCookie: cookie || '',
+      });
+    }
+    if (result.length > 0) {
+      leagueOptions.value = result;
+      // Pick first non-standard, non-hardcore league (challenge league)
+      const picked = result.find(l => !l.includes('永久') && !l.includes('专家') && !l.includes('Standard') && !l.includes('Hardcore')) || result[0];
+      league.value = picked;
+      showStatus(`已加载 ${result.length} 个联赛`, 'success');
+    }
+  } catch (e) {
+    console.error('[查价] 加载联赛失败:', e);
+    showStatus(`加载联赛列表失败: ${e}`, 'error');
+  } finally {
+    isLoadingLeagues.value = false;
+  }
+}
+
+// Fetch leagues when server changes
+watch(server, () => {
+  leagueOptions.value = ['Standard'];
+  league.value = 'Standard';
+  fetchLeagues();
+});
 
 function showStatus(msg: string, type: 'info' | 'success' | 'error' = 'info') {
   statusMsg.value = msg;
@@ -56,18 +94,32 @@ watch(manualText, () => {
   handleParse();
 });
 
-// Global shortcut listener
+// Event listener cleanup handles
 let unlisten: (() => void) | null = null;
 
 onMounted(async () => {
   loadHistory();
+  fetchLeagues();
+  // Load stat DB FIRST (from disk cache if available, otherwise fetch)
+  loadStatDb();
+  restoreLogin();
   try {
-    unlisten = await listen<{ text: string; sticky: boolean }>('price-check-triggered', (event) => {
+    let lastTriggerTime = 0;
+    unlisten = await listen<{ text: string; sticky: boolean }>('price-check-triggered', async (event) => {
+      const now = Date.now();
+      if (now - lastTriggerTime < 3000) {
+        console.log('[查价] 忽略重复触发 (间隔 < 3s)');
+        return;
+      }
+      lastTriggerTime = now;
       const { text } = event.payload;
       if (text && text.trim()) {
         manualText.value = text;
         handleParse(text);
-        showStatus('快捷键查价触发 — ' + (event.payload.sticky ? '固定模式' : '快速模式'), 'info');
+        if (parsedItem.value) {
+          showStatus('正在查价...', 'info');
+          searchTrade();
+        }
       }
     });
     showStatus('已就绪 — 游戏中按 Ctrl+D 查价', 'info');
@@ -92,17 +144,37 @@ async function searchTrade() {
   const isNamed = item.rarity === 'Unique' || item.rarity === '传奇';
   const searchName = isNamed ? item.name : '';
   const searchType = item.baseType || item.name;
+  // Build mod text for stat filters (concatenate all parsed mod lines)
+  const modText = item.mods.map(m => m.text).join('\n');
 
   try {
-    const cookie = server.value === 'cn' ? sessionCookieCn.value : sessionCookieIntl.value;
-
-    const result = await invoke<{ url: string; total: number | null }>('search_trade', {
-      itemName: searchName,
-      itemType: searchType,
-      league: league.value,
-      server: server.value,
-      sessionCookie: cookie || '',
-    });
+    // Always try webview search first (handles HttpOnly cookies via browser's cookie jar)
+    // Fall back to direct API call with manual cookie
+    let result: { url: string; total: number | null };
+    try {
+      result = await invoke<{ url: string; total: number | null }>('search_trade_webview', {
+        itemName: searchName,
+        itemType: searchType,
+        modText: modText,
+        league: league.value,
+        server: server.value,
+      });
+    } catch (webviewErr) {
+      // Fall back to direct API with manual cookie
+      const cookie = server.value === 'cn' ? sessionCookieCn.value : sessionCookieIntl.value;
+      if (!cookie) {
+        throw webviewErr; // No fallback available
+      }
+      showStatus('Webview 搜索失败，尝试直接 API...', 'info');
+      result = await invoke<{ url: string; total: number | null }>('search_trade', {
+        itemName: searchName,
+        itemType: searchType,
+        modText: modText,
+        league: league.value,
+        server: server.value,
+        sessionCookie: cookie,
+      });
+    }
 
     searchResult.value = {
       url: result.url,
@@ -121,17 +193,22 @@ async function searchTrade() {
     saveHistory();
 
     showStatus(`搜索完成 — ${result.total ?? '?'} 个结果`, 'success');
+    // Open trade site in browser — the URL already encodes the search, no extra API call
+    openTradeUrl(result.url);
   } catch (e) {
+    console.error('[查价] 搜索失败:', e);
     showStatus(`搜索失败: ${e}`, 'error');
   } finally {
     isSearching.value = false;
   }
 }
 
+let lastOpenedUrl = '';
 function openTradeUrl(url: string) {
-  invoke('open_file_cmd', { path: url }).catch(() => {
-    window.open(url, '_blank');
-  });
+  if (url === lastOpenedUrl) return;
+  lastOpenedUrl = url;
+  setTimeout(() => { lastOpenedUrl = ''; }, 5000);
+  openUrl(url).catch(() => window.open(url, '_blank'));
 }
 
 // History + Cookie persistence
@@ -185,6 +262,88 @@ function clearSearch() {
 function formatTime(ts: number): string {
   const d = new Date(ts);
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+const isLoggingIn = ref(false);
+const isLoggedIn = ref(false);
+
+// Try to restore login state on startup (WebView2 cookies persist across restarts)
+async function restoreLogin() {
+  console.log('[查价] 尝试恢复登录...');
+  try {
+    const loggedIn = await invoke<boolean>('check_login_status', { server: server.value });
+    if (loggedIn) {
+      console.log('[查价] 已恢复登录(快速)');
+      isLoggedIn.value = true;
+      fetchLeagues();
+      loadStatDb();
+    } else {
+      console.log('[查价] 快速恢复失败，尝试打开隐藏窗口...');
+      try {
+        await invoke('open_login_window', { server: server.value });
+        await new Promise(r => setTimeout(r, 3000));
+        const recheck = await invoke<boolean>('check_login_status', { server: server.value });
+        if (recheck) {
+          console.log('[查价] 已恢复登录(慢速)');
+          isLoggedIn.value = true;
+          fetchLeagues();
+          loadStatDb();
+        } else {
+          console.log('[查价] 恢复登录失败，需手动登录');
+        }
+        invoke('close_login_window', { server: server.value }).catch(() => {});
+      } catch(e) {
+        console.error('[查价] restoreLogin 异常:', e);
+      }
+    }
+  } catch(e) {
+    console.error('[查价] restoreLogin 异常:', e);
+  }
+}
+
+async function loadStatDb() {
+  try {
+    const count = await invoke<number>('get_stat_db', { server: server.value });
+    console.log('[查价] stat DB 已加载:', count, '条');
+  } catch(e) {
+    console.error('[查价] stat DB 加载失败:', e);
+  }
+}
+
+// Login flow: open trade site, poll URL to detect when logged in
+async function startLogin() {
+  isLoggingIn.value = true;
+  showStatus('正在打开市集窗口...', 'info');
+  try {
+    await invoke('open_login_window', { server: server.value });
+    showStatus('请在市集窗口中登录……', 'info');
+    // Poll until the webview is on the trade2 page (logged in)
+    let attempts = 0;
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      try {
+        const loggedIn = await invoke<boolean>('check_login_status', { server: server.value });
+        if (loggedIn) {
+          clearInterval(pollInterval);
+          isLoggingIn.value = false;
+          isLoggedIn.value = true;
+          showStatus('已检测到登录！加载数据中...', 'success');
+          fetchLeagues();
+          loadStatDb();
+          invoke('close_login_window', { server: server.value }).catch(() => {});
+        } else if (attempts > 60) {
+          clearInterval(pollInterval);
+          isLoggingIn.value = false;
+          showStatus('登录超时，请确认已在市集窗口登录', 'error');
+        }
+      } catch (e) {
+        if (attempts > 60) { clearInterval(pollInterval); isLoggingIn.value = false; }
+      }
+    }, 2000);
+  } catch (e) {
+    showStatus(`打开登录窗口失败: ${e}`, 'error');
+    isLoggingIn.value = false;
+  }
 }
 
 const rarityColors: Record<string, string> = {
@@ -336,6 +495,9 @@ const rarityColors: Record<string, string> = {
         <div class="glass-panel sidebar-section">
           <div class="panel-header">
             <span class="panel-title">赛季</span>
+            <button class="btn-text" @click="fetchLeagues" :disabled="isLoadingLeagues">
+              {{ isLoadingLeagues ? '加载中...' : '刷新' }}
+            </button>
           </div>
           <select v-model="league" class="league-select">
             <option v-for="l in leagueOptions" :key="l" :value="l">{{ l }}</option>
@@ -345,28 +507,37 @@ const rarityColors: Record<string, string> = {
         <!-- Session Cookie -->
         <div class="glass-panel sidebar-section">
           <div class="panel-header">
-            <span class="panel-title">Session Cookie</span>
+            <span class="panel-title">登录</span>
+            <span v-if="isLoggedIn" class="login-status">已登录</span>
+            <span v-else class="login-status logged-out">未登录</span>
           </div>
           <div class="cookie-section">
+            <button class="glass-button primary login-btn" @click="startLogin">
+              登录{{ serverLabel[server] }}市集
+            </button>
             <p class="cookie-hint">
-              登录市集网站后，F12 → Network → 复制完整 Cookie 字符串
+              点击后在弹出的市集窗口中登录，Cookie 将自动获取
             </p>
-            <input
-              v-if="server === 'cn'"
-              v-model="sessionCookieCn"
-              @change="saveCookie"
-              class="cookie-input"
-              placeholder="粘贴国服 Cookie..."
-              type="text"
-            />
-            <input
-              v-else
-              v-model="sessionCookieIntl"
-              @change="saveCookie"
-              class="cookie-input"
-              placeholder="粘贴国际服 Cookie..."
-              type="text"
-            />
+            <!-- Manual fallback -->
+            <details class="manual-cookie">
+              <summary>手动粘贴 Cookie</summary>
+              <input
+                v-if="server === 'cn'"
+                v-model="sessionCookieCn"
+                @change="saveCookie"
+                class="cookie-input"
+                placeholder="粘贴国服 Cookie..."
+                type="text"
+              />
+              <input
+                v-else
+                v-model="sessionCookieIntl"
+                @change="saveCookie"
+                class="cookie-input"
+                placeholder="粘贴国际服 Cookie..."
+                type="text"
+              />
+            </details>
           </div>
         </div>
 
@@ -875,11 +1046,43 @@ const rarityColors: Record<string, string> = {
 .cookie-section {
   padding: 10px 12px 14px;
 }
+.login-btn {
+  width: 100%;
+  text-align: center;
+  padding: 10px;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
 .cookie-hint {
   font-size: 11px;
   color: #777;
   margin: 0 0 8px;
   line-height: 1.5;
+}
+.login-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(103, 194, 58, 0.15);
+  color: #b6e68b;
+  border: 1px solid rgba(103, 194, 58, 0.3);
+}
+.login-status.logged-out {
+  background: rgba(255, 255, 255, 0.04);
+  color: #777;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.manual-cookie {
+  margin-top: 6px;
+}
+.manual-cookie summary {
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+}
+.manual-cookie summary:hover {
+  color: #999;
 }
 .cookie-input {
   width: 100%;
@@ -889,6 +1092,7 @@ const rarityColors: Record<string, string> = {
   color: #ccc;
   font-size: 11px;
   padding: 6px 8px;
+  margin-top: 6px;
   box-sizing: border-box;
   outline: none;
   font-family: 'Consolas', monospace;

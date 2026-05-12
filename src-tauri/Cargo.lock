@@ -4678,6 +4678,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "enigo",
+ "regex",
  "serde",
  "serde_json",
  "tauri",

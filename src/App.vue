@@ -9,6 +9,7 @@ import FilterPage from "./views/FilterPage.vue";
 import MarketPage from "./views/MarketPage.vue";
 import WorkshopPage from "./views/WorkshopPage.vue";
 import PoedbPage from "./views/PoedbPage.vue";
+import PriceCheckPage from "./views/PriceCheckPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
 
 // State
@@ -55,6 +56,7 @@ const videoSrc = computed(() => settings.backgroundPath ? convertFileSrc(setting
 // Component Mapping
 const viewComponents: Record<string, any> = {
   filter: FilterPage,
+  pricecheck: PriceCheckPage,
   settings: SettingsPage,
 };
 
@@ -145,6 +147,7 @@ onMounted(async () => {
         <MarketPage v-show="currentView === 'market'" :is-active="currentView === 'market'" class="persistent-view" />
         <WorkshopPage v-show="currentView === 'workshop'" class="persistent-view" />
         <PoedbPage v-show="currentView === 'poedb'" :is-active="currentView === 'poedb'" class="persistent-view" />
+        <PriceCheckPage v-show="currentView === 'pricecheck'" class="persistent-view" />
         <transition name="page-fade" mode="out-in">
           <keep-alive>
               <component :is="viewComponents[currentView]" :key="currentView" />

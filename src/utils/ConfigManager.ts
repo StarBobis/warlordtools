@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     height: 720,
     maximized: false,
     filterStoragePath: '',
-    navOrder: ['filter', 'market', 'workshop', 'poedb'],
+    navOrder: ['filter', 'pricecheck', 'market', 'workshop', 'poedb'],
     backgroundType: 'default',
     backgroundPath: '',
     backgroundVolume: 0

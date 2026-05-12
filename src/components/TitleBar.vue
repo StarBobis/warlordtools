@@ -14,6 +14,7 @@ const emit = defineEmits<{
 // Navigation Items Configuration
 const navLabels: Record<string, string> = {
     filter: '过滤器本地修改',
+    pricecheck: '查价',
     market: '市集',
     workshop: '白菜工坊',
     poedb: 'POE2DB'
@@ -46,7 +47,7 @@ const initNavOrder = async () => {
         }
     } else {
         // Default order
-         navItems.value = ['filter', 'market', 'workshop', 'poedb'];
+         navItems.value = ['filter', 'pricecheck', 'market', 'workshop', 'poedb'];
     }
 };
 

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "market-window", "market-overlay", "poedb-overlay"],
+  "windows": ["main", "market-window", "market-overlay", "poedb-overlay", "pricecheck-overlay"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -26,6 +26,10 @@
     "fs:allow-mkdir",
     "fs:allow-localdata-read-recursive",
     "fs:allow-localdata-write-recursive",
-    "fs:allow-localdata-meta-recursive"
+    "fs:allow-localdata-meta-recursive",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }

@@ -25,4 +25,8 @@ serde_json = "1"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2.6.0"
 url = "2.5"
+tauri-plugin-global-shortcut = "2"
+arboard = "3"
+enigo = "0.2"
+ureq = { version = "2", features = ["json"] }
 
